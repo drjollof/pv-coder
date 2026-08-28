@@ -4,6 +4,9 @@ import { AlertTriangle, CheckCircle, Download, FileText } from 'lucide-react'
 function App() {
   const [activeTab, setActiveTab] = useState('single')
   
+  // Set global API URL
+  window.API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  
   return (
     <div>
       <header style={{ marginBottom: '2rem' }}>
@@ -53,7 +56,7 @@ function SingleIntake() {
   const [examples, setExamples] = useState([])
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/examples')
+    fetch(`${window.API_URL}/api/examples`)
       .then(res => res.json())
       .then(data => setExamples(data.examples))
       .catch(err => console.error("Could not load examples", err))
@@ -69,7 +72,7 @@ function SingleIntake() {
     setShowJson(false)
     
     try {
-      const res = await fetch('http://localhost:8000/api/analyze', {
+      const res = await fetch(`${window.API_URL}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ narrative, case_id: 'WEB-' + Math.floor(Math.random()*1000) })
@@ -87,7 +90,7 @@ function SingleIntake() {
 
   const handleExport = async (format) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/export/${format}`, {
+      const res = await fetch(`${window.API_URL}/api/export/${format}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(result)
@@ -355,7 +358,7 @@ function BatchUpload() {
     formData.append('file', file)
 
     try {
-      const res = await fetch('http://localhost:8000/api/batch', {
+      const res = await fetch(`${window.API_URL}/api/batch`, {
         method: 'POST',
         body: formData,
       })
@@ -408,7 +411,7 @@ function BatchUpload() {
   const exportXMLZip = async () => {
     if (!results) return
     try {
-      const res = await fetch('http://localhost:8000/api/export/batch/xml-zip', {
+      const res = await fetch(`${window.API_URL}/api/export/batch/xml-zip`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(results)

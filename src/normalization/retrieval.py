@@ -30,7 +30,7 @@ class HybridRetriever:
             
         sem_results = self.semantic.match(query, top_k=top_k)
         
-        combined_scores: Dict[str, Tuple[str, float]] = {} # id -> (pt, max_score)
+        combined_scores: Dict[str, Tuple[str, float]] = {} 
         
         for pt, pt_id, score in lex_results:
             combined_scores[pt_id] = (pt, score)

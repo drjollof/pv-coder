@@ -7,6 +7,7 @@ from typing import List
 import zipfile
 from pydantic import BaseModel
 import sys
+import os
 import io
 import pandas as pd
 from pathlib import Path
@@ -22,9 +23,12 @@ from src.pv.case_schema import PharmacovigilanceCase
 
 app = FastAPI(title="PV-Coder API")
 
+frontend_url = os.environ.get("FRONTEND_URL")
+allowed_origins = [frontend_url] if frontend_url else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For development
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
