@@ -129,8 +129,19 @@ class ExtractionPipeline:
         # Check if ONNX model exists locally
         if Path(self.ONNX_MODEL_DIR).exists():
             print(f"Loading optimized ONNX NER model from {self.ONNX_MODEL_DIR}...", flush=True)
+            
+            import onnxruntime as ort
+            session_options = ort.SessionOptions()
+            session_options.intra_op_num_threads = 1
+            session_options.inter_op_num_threads = 1
+            session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+            
             tokenizer = AutoTokenizer.from_pretrained(self.ONNX_MODEL_DIR)
-            ort_model = ORTModelForTokenClassification.from_pretrained(self.ONNX_MODEL_DIR)
+            ort_model = ORTModelForTokenClassification.from_pretrained(
+                self.ONNX_MODEL_DIR, 
+                session_options=session_options,
+                provider="CPUExecutionProvider"
+            )
             
             self._ner: Pipeline = hf_pipeline(
                 "ner",

@@ -28,7 +28,20 @@ class SemanticNormalizer:
         onnx_dir = _ROOT / "models" / "sapbert_onnx_quantized"
         if onnx_dir.exists():
             print(f"Loading optimized ONNX SapBERT model from {onnx_dir}...", flush=True)
-            self.model = SentenceTransformer(str(onnx_dir), backend="onnx")
+            
+            import onnxruntime as ort
+            session_options = ort.SessionOptions()
+            session_options.intra_op_num_threads = 1
+            session_options.inter_op_num_threads = 1
+            
+            self.model = SentenceTransformer(
+                str(onnx_dir), 
+                backend="onnx",
+                model_kwargs={
+                    "provider": "CPUExecutionProvider",
+                    "session_options": session_options
+                }
+            )
         else:
             print(f"Loading native PyTorch SapBERT model: {model_name}...", flush=True)
             self.model = SentenceTransformer(model_name)
