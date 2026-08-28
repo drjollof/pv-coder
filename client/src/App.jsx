@@ -5,10 +5,10 @@ import { Client } from "@gradio/client"
 function App() {
   const [activeTab, setActiveTab] = useState('single')
   
-  // Set global API URL using the full HTTPS endpoint to avoid any resolution issues
-  window.API_URL = import.meta.env.PROD 
-    ? 'https://drjollof-pv-coder-api.hf.space' 
-    : 'http://localhost:7860';
+  // Dynamically choose backend URL based on environment
+  window.API_URL = import.meta.env.DEV 
+    ? "http://127.0.0.1:7860" 
+    : "https://drjollof-pv-coder-api.hf.space";
   
   return (
     <div>
