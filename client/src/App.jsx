@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { AlertTriangle, CheckCircle, Download, FileText } from 'lucide-react'
+import { Client } from "@gradio/client"
 
 function App() {
   const [activeTab, setActiveTab] = useState('single')
@@ -56,10 +57,16 @@ function SingleIntake() {
   const [examples, setExamples] = useState([])
 
   useEffect(() => {
-    fetch(`${window.API_URL}/api/examples`)
-      .then(res => res.json())
-      .then(data => setExamples(data.examples))
-      .catch(err => console.error("Could not load examples", err))
+    async function loadExamples() {
+      try {
+        const client = await Client.connect(window.API_URL)
+        const res = await client.predict("/examples")
+        setExamples(res.data[0])
+      } catch (err) {
+        console.error("Could not load examples", err)
+      }
+    }
+    loadExamples()
   }, [])
 
   const handleAnalyze = async () => {
@@ -72,15 +79,13 @@ function SingleIntake() {
     setShowJson(false)
     
     try {
-      const res = await fetch(`${window.API_URL}/api/analyze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ narrative, case_id: 'WEB-' + Math.floor(Math.random()*1000) })
-      })
+      const client = await Client.connect(window.API_URL)
+      const res = await client.predict("/analyze", [
+        narrative, 
+        'WEB-' + Math.floor(Math.random()*1000)
+      ])
       
-      if (!res.ok) throw new Error("API Error")
-      const data = await res.json()
-      setResult(data)
+      setResult(res.data[0])
     } catch (err) {
       setError("Failed to connect to the backend API.")
     } finally {
@@ -90,18 +95,15 @@ function SingleIntake() {
 
   const handleExport = async (format) => {
     try {
-      const res = await fetch(`${window.API_URL}/api/export/${format}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(result)
-      })
+      const client = await Client.connect(window.API_URL)
+      const endpoint = format === 'pdf' ? '/export_pdf' : '/export_xml'
+      const res = await client.predict(endpoint, [result])
       
-      if (!res.ok) throw new Error(`Failed to generate ${format.toUpperCase()}`)
+      const fileData = res.data[0]
+      const fileUrl = fileData.url
       
-      const blob = await res.blob()
-      const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = url
+      a.href = fileUrl
       a.download = `${result.case_id}_report.${format}`
       document.body.appendChild(a)
       a.click()
@@ -358,15 +360,10 @@ function BatchUpload() {
     formData.append('file', file)
 
     try {
-      const res = await fetch(`${window.API_URL}/api/batch`, {
-        method: 'POST',
-        body: formData,
-      })
+      const client = await Client.connect(window.API_URL)
+      const res = await client.predict("/batch", [file])
       
-      if (!res.ok) throw new Error("Batch processing failed")
-      
-      const data = await res.json()
-      setResults(data)
+      setResults(res.data[0])
     } catch (err) {
       alert("Error processing batch: " + err.message)
     } finally {
@@ -411,22 +408,17 @@ function BatchUpload() {
   const exportXMLZip = async () => {
     if (!results) return
     try {
-      const res = await fetch(`${window.API_URL}/api/export/batch/xml-zip`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(results)
-      })
+      const client = await Client.connect(window.API_URL)
+      const res = await client.predict("/batch_xml_zip", [results])
       
-      if (!res.ok) throw new Error("Failed to generate ZIP")
+      const fileData = res.data[0]
+      const fileUrl = fileData.url
       
-      const blob = await res.blob()
-      const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = url
+      a.href = fileUrl
       a.download = `pv_coder_batch_xmls.zip`
       document.body.appendChild(a)
       a.click()
-      window.URL.revokeObjectURL(url)
     } catch (err) {
       alert("Error downloading XML ZIP")
     }
