@@ -10,7 +10,7 @@ optimum[onnxruntime]
 scikit-learn>=1.4
 thefuzz>=0.22.0
 faiss-cpu>=1.8.0
-fastapi>=0.110.0
+fastapi>=0.110.0,<0.113.0
 uvicorn>=0.29.0
 python-multipart>=0.0.9
 fpdf2>=2.7.9
