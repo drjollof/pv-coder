@@ -97,7 +97,7 @@ function SingleIntake() {
     try {
       const client = await Client.connect(window.API_URL)
       const endpoint = format === 'pdf' ? '/export_pdf' : '/export_xml'
-      const res = await client.predict(endpoint, [result])
+      const res = await client.predict(endpoint, [JSON.stringify(result)])
       
       const fileData = res.data[0]
       const fileUrl = fileData.url
@@ -409,7 +409,7 @@ function BatchUpload() {
     if (!results) return
     try {
       const client = await Client.connect(window.API_URL)
-      const res = await client.predict("/batch_xml_zip", [results])
+      const res = await client.predict("/batch_xml_zip", [JSON.stringify(results)])
       
       const fileData = res.data[0]
       const fileUrl = fileData.url

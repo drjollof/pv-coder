@@ -33,7 +33,8 @@ def analyze_api(narrative: str, case_id: str):
     case = builder.process(narrative=narrative, case_id=case_id)
     return case.model_dump()
 
-def export_pdf_api(case_dict: Dict[str, Any]):
+def export_pdf_api(case_dict_str: str):
+    case_dict = json.loads(case_dict_str)
     case = PharmacovigilanceCase(**case_dict)
     pdf_bytes = generate_pdf_report(case)
     
@@ -43,7 +44,8 @@ def export_pdf_api(case_dict: Dict[str, Any]):
         f.write(pdf_bytes)
     return filepath
 
-def export_xml_api(case_dict: Dict[str, Any]):
+def export_xml_api(case_dict_str: str):
+    case_dict = json.loads(case_dict_str)
     case = PharmacovigilanceCase(**case_dict)
     xml_str = generate_e2b_xml(case)
     
@@ -67,7 +69,8 @@ def batch_api(csv_filepath: str):
         results.append(case.model_dump())
     return results
 
-def batch_xml_zip_api(results_list: list):
+def batch_xml_zip_api(results_list_str: str):
+    results_list = json.loads(results_list_str)
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "batch_xmls.zip")
     
@@ -102,15 +105,15 @@ with gr.Blocks(title="PV-Coder Engine API") as demo:
         btn_analyze.click(fn=analyze_api, inputs=[t_narrative, t_case_id], outputs=j_out_case, api_name="analyze")
         
         # PDF Export
-        j_in_case = gr.JSON()
+        t_in_case = gr.Textbox()
         f_out_pdf = gr.File()
         btn_pdf = gr.Button("PDF")
-        btn_pdf.click(fn=export_pdf_api, inputs=j_in_case, outputs=f_out_pdf, api_name="export_pdf")
+        btn_pdf.click(fn=export_pdf_api, inputs=t_in_case, outputs=f_out_pdf, api_name="export_pdf")
         
         # XML Export
         f_out_xml = gr.File()
         btn_xml = gr.Button("XML")
-        btn_xml.click(fn=export_xml_api, inputs=j_in_case, outputs=f_out_xml, api_name="export_xml")
+        btn_xml.click(fn=export_xml_api, inputs=t_in_case, outputs=f_out_xml, api_name="export_xml")
         
         # Batch
         f_in_csv = gr.File()
@@ -119,10 +122,10 @@ with gr.Blocks(title="PV-Coder Engine API") as demo:
         btn_batch.click(fn=batch_api, inputs=f_in_csv, outputs=j_out_batch, api_name="batch")
         
         # Batch XML Zip
-        j_in_batch = gr.JSON()
+        t_in_batch = gr.Textbox()
         f_out_zip = gr.File()
         btn_zip = gr.Button("Zip")
-        btn_zip.click(fn=batch_xml_zip_api, inputs=j_in_batch, outputs=f_out_zip, api_name="batch_xml_zip")
+        btn_zip.click(fn=batch_xml_zip_api, inputs=t_in_batch, outputs=f_out_zip, api_name="batch_xml_zip")
         
         # Examples
         j_out_examples = gr.JSON()
