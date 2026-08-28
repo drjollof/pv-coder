@@ -13,24 +13,26 @@ from src.pv.seriousness import SeriousnessClassifier
 
 class CaseBuilder:
     def __init__(self, dict_path: str, faiss_index_path: str = None):
-        print("Initializing NER Pipeline...")
+        print("Initializing NER Pipeline...", flush=True)
         self.ner = ExtractionPipeline()
 
-        print("Initializing Event Builder...")
+        print("Initializing Event Builder...", flush=True)
         self.event_builder = EventBuilder()
 
-        print("Initializing Normalizer...")
+        print("Initializing Normalizer...", flush=True)
         dictionary = pd.read_parquet(dict_path)
         self.semantic = SemanticNormalizer(dictionary, faiss_index_path=faiss_index_path)
 
-        print("Initializing Seriousness Classifier...")
+        print("Initializing Seriousness Classifier...", flush=True)
         self.seriousness = SeriousnessClassifier()
 
     def process(self, narrative: str, case_id: str) -> PharmacovigilanceCase:
         """
         Processes a raw clinical narrative into a structured PharmacovigilanceCase.
         """
+        print(f"[{case_id}] Extracting entities...", flush=True)
         candidates = self.ner.extract(narrative)
+        print(f"[{case_id}] Building events...", flush=True)
         events = self.event_builder.build(candidates, narrative)
         adverse_events = [e for e in events if e.event_type == EventType.ADVERSE_EVENT]
 

@@ -24,21 +24,22 @@ class SemanticNormalizer:
         self.dict_df = dictionary_df.copy()
         self.dict_texts = self.dict_df['meddra_pt'].str.lower().tolist()
         
-        onnx_dir = Path("models/sapbert_onnx_quantized")
+        _ROOT = Path(__file__).parent.parent.parent
+        onnx_dir = _ROOT / "models" / "sapbert_onnx_quantized"
         if onnx_dir.exists():
-            print(f"Loading optimized ONNX SapBERT model from {onnx_dir}...")
+            print(f"Loading optimized ONNX SapBERT model from {onnx_dir}...", flush=True)
             self.model = SentenceTransformer(str(onnx_dir), backend="onnx")
         else:
-            print(f"Loading native PyTorch SapBERT model: {model_name}...")
+            print(f"Loading native PyTorch SapBERT model: {model_name}...", flush=True)
             self.model = SentenceTransformer(model_name)
             
         self.faiss_index = None
         
         if faiss_index_path and Path(faiss_index_path).exists():
-            print(f"Loading FAISS index from {faiss_index_path}...")
+            print(f"Loading FAISS index from {faiss_index_path}...", flush=True)
             self.faiss_index = faiss.read_index(str(faiss_index_path))
         else:
-            print("Encoding dictionary dynamically (slow)...")
+            print("Encoding dictionary dynamically (slow)...", flush=True)
             self.dict_embeddings = self.model.encode(self.dict_texts, show_progress_bar=False, convert_to_numpy=True)
             faiss.normalize_L2(self.dict_embeddings)
             self.faiss_index = faiss.IndexFlatIP(self.dict_embeddings.shape[1])

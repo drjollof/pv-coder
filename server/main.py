@@ -39,11 +39,19 @@ _builder = None
 def get_builder() -> CaseBuilder:
     global _builder
     if _builder is None:
+        print("get_builder: builder is None, starting initialization...", flush=True)
         dict_path = str(ROOT / "data" / "processed" / "tac_meddra_dict.parquet")
         faiss_path = str(ROOT / "data" / "processed" / "faiss.index")
+        
+        print(f"Checking faiss index at: {faiss_path}", flush=True)
         if not Path(faiss_path).exists():
+            print(f"WARNING: faiss.index NOT FOUND at {faiss_path}!", flush=True)
             faiss_path = None
+        else:
+            print("faiss.index FOUND.", flush=True)
+            
         _builder = CaseBuilder(dict_path, faiss_index_path=faiss_path)
+        print("get_builder: initialization complete.", flush=True)
     return _builder
 
 class AnalyzeRequest(BaseModel):
@@ -52,8 +60,11 @@ class AnalyzeRequest(BaseModel):
 
 @app.post("/api/analyze", response_model=PharmacovigilanceCase)
 def analyze_case(req: AnalyzeRequest):
+    print(f"Received /api/analyze request for case_id={req.case_id}", flush=True)
     builder = get_builder()
+    print("Calling builder.process...", flush=True)
     case = builder.process(narrative=req.narrative, case_id=req.case_id)
+    print("builder.process complete. Returning response.", flush=True)
     return case
 
 @app.get("/api/examples")

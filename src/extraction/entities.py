@@ -109,7 +109,11 @@ class ExtractionPipeline:
     """
 
     DEFAULT_MODEL = "d4data/biomedical-ner-all"
-    ONNX_MODEL_DIR = "models/ner_onnx_quantized"
+    
+    # Use absolute path based on repository root
+    from pathlib import Path
+    _ROOT = Path(__file__).parent.parent.parent
+    ONNX_MODEL_DIR = str(_ROOT / "models" / "ner_onnx_quantized")
 
     def __init__(self, model: str = DEFAULT_MODEL) -> None:
         from pathlib import Path
@@ -124,7 +128,7 @@ class ExtractionPipeline:
             
         # Check if ONNX model exists locally
         if Path(self.ONNX_MODEL_DIR).exists():
-            print(f"Loading optimized ONNX NER model from {self.ONNX_MODEL_DIR}...")
+            print(f"Loading optimized ONNX NER model from {self.ONNX_MODEL_DIR}...", flush=True)
             tokenizer = AutoTokenizer.from_pretrained(self.ONNX_MODEL_DIR)
             ort_model = ORTModelForTokenClassification.from_pretrained(self.ONNX_MODEL_DIR)
             
@@ -135,7 +139,7 @@ class ExtractionPipeline:
                 aggregation_strategy="first",
             )
         else:
-            print(f"Loading native PyTorch NER model: {model}...")
+            print(f"Loading native PyTorch NER model: {model}...", flush=True)
             self._ner: Pipeline = hf_pipeline(
                 "ner",
                 model=model,
