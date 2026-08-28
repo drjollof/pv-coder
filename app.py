@@ -28,9 +28,14 @@ def get_builder():
 
 @spaces.GPU
 def analyze_api(narrative: str, case_id: str) -> str:
-    builder = get_builder()
-    case = builder.process(narrative=narrative, case_id=case_id)
-    return json.dumps(case.model_dump())
+    try:
+        builder = get_builder()
+        case = builder.process(narrative=narrative, case_id=case_id)
+        return json.dumps(case.model_dump())
+    except Exception as e:
+        import traceback
+        err_str = traceback.format_exc()
+        return json.dumps({"error": str(e), "traceback": err_str})
 
 def export_pdf_api(case_dict_str: str) -> str:
     case = PharmacovigilanceCase(**json.loads(case_dict_str))

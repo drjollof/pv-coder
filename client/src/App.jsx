@@ -86,8 +86,14 @@ function SingleIntake() {
         narrative, 
         'WEB-' + Math.floor(Math.random()*1000)
       ])
+      const data = JSON.parse(res.data[0])
+      if (data.error) {
+        console.error("Backend Exception:", data.traceback)
+        setError(`Backend Error: ${data.error}\n\n${data.traceback}`)
+        return
+      }
       
-      setResult(JSON.parse(res.data[0]))
+      setResult(data)
     } catch (err) {
       console.error("Analysis Error:", err)
       setError(`API Error: ${err.message}`)
