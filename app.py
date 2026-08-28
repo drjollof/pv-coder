@@ -2,18 +2,17 @@ import gradio as gr
 import spaces
 from pathlib import Path
 import json
+import base64
 import os
 import tempfile
 import zipfile
 import pandas as pd
-from typing import Dict, Any
 
 from src.pv.builder import CaseBuilder
 from src.pv.case_schema import PharmacovigilanceCase
 from src.pv.xml_generator import generate_e2b_xml
 from src.pv.pdf_generator import generate_pdf_report
 
-# Global builder
 _builder = None
 
 def get_builder():
@@ -28,40 +27,28 @@ def get_builder():
     return _builder
 
 @spaces.GPU
-def analyze_api(narrative: str, case_id: str):
+def analyze_api(narrative: str, case_id: str) -> str:
     builder = get_builder()
     case = builder.process(narrative=narrative, case_id=case_id)
     return json.dumps(case.model_dump())
 
-def export_pdf_api(case_dict_str: str):
-    case_dict = json.loads(case_dict_str)
-    case = PharmacovigilanceCase(**case_dict)
+def export_pdf_api(case_dict_str: str) -> str:
+    case = PharmacovigilanceCase(**json.loads(case_dict_str))
     pdf_bytes = generate_pdf_report(case)
-    
-    temp_dir = tempfile.mkdtemp()
-    filepath = os.path.join(temp_dir, f"{case.case_id}_report.pdf")
-    with open(filepath, "wb") as f:
-        f.write(pdf_bytes)
-    return filepath
+    return base64.b64encode(pdf_bytes).decode("utf-8")
 
-def export_xml_api(case_dict_str: str):
-    case_dict = json.loads(case_dict_str)
-    case = PharmacovigilanceCase(**case_dict)
-    xml_str = generate_e2b_xml(case)
-    
-    temp_dir = tempfile.mkdtemp()
-    filepath = os.path.join(temp_dir, f"{case.case_id}_e2b.xml")
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(xml_str)
-    return filepath
+def export_xml_api(case_dict_str: str) -> str:
+    case = PharmacovigilanceCase(**json.loads(case_dict_str))
+    return generate_e2b_xml(case)
 
 @spaces.GPU
-def batch_api(csv_filepath: str):
-    builder = get_builder()
-    df = pd.read_csv(csv_filepath)
+def batch_api(csv_b64: str) -> str:
+    csv_bytes = base64.b64decode(csv_b64.encode("utf-8"))
+    import io
+    df = pd.read_csv(io.BytesIO(csv_bytes))
     if 'narrative' not in df.columns:
         raise ValueError("CSV must contain a 'narrative' column")
-        
+    builder = get_builder()
     results = []
     for idx, row in df.iterrows():
         case_id = str(row.get('case_id', f"BATCH-{idx}"))
@@ -69,68 +56,65 @@ def batch_api(csv_filepath: str):
         results.append(case.model_dump())
     return json.dumps(results)
 
-def batch_xml_zip_api(results_list_str: str):
+def batch_xml_zip_api(results_list_str: str) -> str:
     results_list = json.loads(results_list_str)
+    buf = {}
+    for case_dict in results_list:
+        case = PharmacovigilanceCase(**case_dict)
+        buf[f"{case.case_id}_e2b.xml"] = generate_e2b_xml(case)
+
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "batch_xmls.zip")
-    
     with zipfile.ZipFile(zip_path, 'w') as zipf:
-        for case_dict in results_list:
-            case = PharmacovigilanceCase(**case_dict)
-            xml_str = generate_e2b_xml(case)
-            xml_filename = f"{case.case_id}_e2b.xml"
-            zipf.writestr(xml_filename, xml_str)
-            
-    return zip_path
+        for fname, content in buf.items():
+            zipf.writestr(fname, content)
 
-# Get examples
-def get_examples():
+    with open(zip_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
+def get_examples() -> str:
     try:
-        from server.main import load_examples
-        return json.dumps(load_examples())
+        ROOT = Path(__file__).parent
+        content = (ROOT / "data" / "test_narratives.md").read_text(encoding="utf-8")
+        import re
+        blocks = re.split(r'\n\d+\.\s', '\n' + content)
+        examples = []
+        for block in blocks:
+            block = block.strip()
+            if block and not block.startswith("Section"):
+                text = " ".join(line.strip() for line in block.split('\n') if line.strip())
+                examples.append(text)
+        return json.dumps(examples)
     except Exception:
         return json.dumps([])
 
-# Create the Gradio App
 with gr.Blocks(title="PV-Coder Engine API") as demo:
-    gr.Markdown("# PV-Coder API Endpoint\nThis space hosts the headless API for PV-Coder. Use the `/api/...` endpoints.")
-    
-    # Hidden components for API routing
+    gr.Markdown("## PV-Coder API\nHeadless NLP backend for pharmacovigilance case coding.")
+
     with gr.Row(visible=False):
-        # Analyze
-        t_narrative = gr.Textbox()
-        t_case_id = gr.Textbox()
-        t_out_case = gr.Textbox()
-        btn_analyze = gr.Button("Analyze")
-        btn_analyze.click(fn=analyze_api, inputs=[t_narrative, t_case_id], outputs=t_out_case, api_name="analyze")
-        
-        # PDF Export
-        t_in_case = gr.Textbox()
-        f_out_pdf = gr.File()
-        btn_pdf = gr.Button("PDF")
-        btn_pdf.click(fn=export_pdf_api, inputs=t_in_case, outputs=f_out_pdf, api_name="export_pdf")
-        
-        # XML Export
-        f_out_xml = gr.File()
-        btn_xml = gr.Button("XML")
-        btn_xml.click(fn=export_xml_api, inputs=t_in_case, outputs=f_out_xml, api_name="export_xml")
-        
-        # Batch
-        f_in_csv = gr.File()
-        t_out_batch = gr.Textbox()
-        btn_batch = gr.Button("Batch")
-        btn_batch.click(fn=batch_api, inputs=f_in_csv, outputs=t_out_batch, api_name="batch")
-        
-        # Batch XML Zip
-        t_in_batch = gr.Textbox()
-        f_out_zip = gr.File()
-        btn_zip = gr.Button("Zip")
-        btn_zip.click(fn=batch_xml_zip_api, inputs=t_in_batch, outputs=f_out_zip, api_name="batch_xml_zip")
-        
-        # Examples
-        t_out_examples = gr.Textbox()
-        btn_examples = gr.Button("Examples")
-        btn_examples.click(fn=get_examples, inputs=None, outputs=t_out_examples, api_name="examples")
+        i_narrative = gr.Textbox()
+        i_case_id = gr.Textbox()
+        o_case = gr.Textbox()
+        gr.Button("Analyze").click(fn=analyze_api, inputs=[i_narrative, i_case_id], outputs=o_case, api_name="analyze")
+
+        i_case_for_pdf = gr.Textbox()
+        o_pdf_b64 = gr.Textbox()
+        gr.Button("PDF").click(fn=export_pdf_api, inputs=i_case_for_pdf, outputs=o_pdf_b64, api_name="export_pdf")
+
+        i_case_for_xml = gr.Textbox()
+        o_xml_str = gr.Textbox()
+        gr.Button("XML").click(fn=export_xml_api, inputs=i_case_for_xml, outputs=o_xml_str, api_name="export_xml")
+
+        i_csv_b64 = gr.Textbox()
+        o_batch = gr.Textbox()
+        gr.Button("Batch").click(fn=batch_api, inputs=i_csv_b64, outputs=o_batch, api_name="batch")
+
+        i_results = gr.Textbox()
+        o_zip_b64 = gr.Textbox()
+        gr.Button("ZIP").click(fn=batch_xml_zip_api, inputs=i_results, outputs=o_zip_b64, api_name="batch_xml_zip")
+
+        o_examples = gr.Textbox()
+        gr.Button("Examples").click(fn=get_examples, inputs=None, outputs=o_examples, api_name="examples")
 
 if __name__ == "__main__":
     demo.launch()

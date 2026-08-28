@@ -98,16 +98,23 @@ function SingleIntake() {
       const client = await Client.connect(window.API_URL)
       const endpoint = format === 'pdf' ? '/export_pdf' : '/export_xml'
       const res = await client.predict(endpoint, [JSON.stringify(result)])
-      
-      const fileData = res.data[0]
-      const fileUrl = fileData.url
-      
+      const payload = res.data[0]
+
+      let blob
+      if (format === 'pdf') {
+        const bytes = Uint8Array.from(atob(payload), c => c.charCodeAt(0))
+        blob = new Blob([bytes], { type: 'application/pdf' })
+      } else {
+        blob = new Blob([payload], { type: 'application/xml' })
+      }
+
+      const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = fileUrl
+      a.href = url
       a.download = `${result.case_id}_report.${format}`
       document.body.appendChild(a)
       a.click()
-      window.URL.revokeObjectURL(url)
+      URL.revokeObjectURL(url)
     } catch (err) {
       alert(`Error generating ${format.toUpperCase()}`)
     }
@@ -354,15 +361,16 @@ function BatchUpload() {
 
   const handleUpload = async () => {
     if (!file) return
-    
     setUploading(true)
-    const formData = new FormData()
-    formData.append('file', file)
-
     try {
+      const arrayBuffer = await file.arrayBuffer()
+      const bytes = new Uint8Array(arrayBuffer)
+      let binary = ''
+      bytes.forEach(b => binary += String.fromCharCode(b))
+      const csvB64 = btoa(binary)
+
       const client = await Client.connect(window.API_URL)
-      const res = await client.predict("/batch", [file])
-      
+      const res = await client.predict("/batch", [csvB64])
       setResults(JSON.parse(res.data[0]))
     } catch (err) {
       alert("Error processing batch: " + err.message)
@@ -410,15 +418,16 @@ function BatchUpload() {
     try {
       const client = await Client.connect(window.API_URL)
       const res = await client.predict("/batch_xml_zip", [JSON.stringify(results)])
-      
-      const fileData = res.data[0]
-      const fileUrl = fileData.url
-      
+      const zipB64 = res.data[0]
+      const bytes = Uint8Array.from(atob(zipB64), c => c.charCodeAt(0))
+      const blob = new Blob([bytes], { type: 'application/zip' })
+      const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = fileUrl
+      a.href = url
       a.download = `pv_coder_batch_xmls.zip`
       document.body.appendChild(a)
       a.click()
+      URL.revokeObjectURL(url)
     } catch (err) {
       alert("Error downloading XML ZIP")
     }
