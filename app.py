@@ -9,7 +9,7 @@ import pandas as pd
 from typing import Dict, Any
 
 from src.pv.builder import CaseBuilder
-from src.pv.schema import PharmacovigilanceCase
+from src.pv.case_schema import PharmacovigilanceCase
 from src.pv.xml_generator import generate_e2b_xml
 from src.pv.pdf_generator import generate_pdf_report
 
