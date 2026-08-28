@@ -40,11 +40,12 @@ class SemanticNormalizer:
                 model_kwargs={
                     "provider": "CPUExecutionProvider",
                     "session_options": session_options
-                }
+                },
+                device="cpu"
             )
         else:
             print(f"Loading native PyTorch SapBERT model: {model_name}...", flush=True)
-            self.model = SentenceTransformer(model_name)
+            self.model = SentenceTransformer(model_name, device="cpu")
             
         self.faiss_index = None
         

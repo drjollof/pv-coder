@@ -148,6 +148,7 @@ class ExtractionPipeline:
                 model=ort_model,
                 tokenizer=tokenizer,
                 aggregation_strategy="first",
+                device="cpu",
             )
         else:
             print(f"Loading native PyTorch NER model: {model}...", flush=True)
@@ -155,6 +156,7 @@ class ExtractionPipeline:
                 "ner",
                 model=model,
                 aggregation_strategy="first",
+                device="cpu",
             )
             
         # Blank spaCy pipeline used only to create Doc containers for ConText.
