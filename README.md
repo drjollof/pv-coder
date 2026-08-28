@@ -25,7 +25,7 @@ This system is designed as a **Human-in-the-loop (HITL) decision support tool**,
 The system is fully decoupled into a modern Web architecture:
 
 1. **NLP Engine (`src/`)**: Pure Python data science pipeline.
-2. **Backend (`server/`)**: FastAPI serving the NLP engine.
+2. **Backend (`app.py`)**: Gradio Headless API serving the NLP engine.
 3. **Frontend (`client/`)**: React.js (Vite) providing a premium, interactive user interface.
 
 ### NLP Pipeline
@@ -43,8 +43,7 @@ The system is fully decoupled into a modern Web architecture:
 ```text
 pv-coder/
 ├── client/                 # React.js Frontend (Vite, CSS Modules)
-├── server/                 # FastAPI Backend (REST API)
-│   └── main.py             # Defines /api/analyze, /api/batch, /api/export
+├── app.py                  # Gradio Backend (Headless REST/WebSocket API)
 ├── src/                    # Core Python AI Engine
 │   ├── data/               # Raw XML parsers for TAC/PHEE datasets
 │   ├── extraction/         # NER (entities.py) & Context filtering (context.py)
@@ -63,17 +62,17 @@ pv-coder/
 
 Because the architecture is decoupled, you must run the backend and frontend in two separate terminals.
 
-### 1. Start the FastAPI Backend
+### 1. Start the Gradio Backend
 Ensure you have Python 3.10+ installed.
 
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Start the FastAPI server on port 8000
-uvicorn server.main:app --reload --port 8000
+# 2. Start the Gradio headless server
+python app.py
 ```
-*Note: The first API request will take ~10-15 seconds to load the ONNX models into memory.*
+*Note: The NLP engine is configured to intelligently check the environment. If run locally, it uses optimized INT8 ONNX models for fast CPU inference. If run on a Hugging Face ZeroGPU Space, it dynamically downloads the native PyTorch models to leverage GPU acceleration.*
 
 ### 2. Start the React Frontend
 Ensure you have Node.js installed. Open a new terminal window:

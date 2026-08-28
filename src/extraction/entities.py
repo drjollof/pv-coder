@@ -126,9 +126,10 @@ class ExtractionPipeline:
                 "Install with: pip install transformers optimum[onnxruntime]"
             ) from exc
             
-        # Bypass ONNX models completely to use native PyTorch models on ZeroGPU
-        if False:
-            pass
+        import os
+        # Use ONNX if models exist locally AND we are not running on HuggingFace Spaces (where ZeroGPU is available)
+        if Path(self.ONNX_MODEL_DIR).exists() and not os.environ.get("SPACE_ID"):
+            print(f"Loading optimized ONNX NER model from {self.ONNX_MODEL_DIR}...", flush=True)
         else:
             print(f"Loading native PyTorch NER model: {model}...", flush=True)
             self._ner: Pipeline = hf_pipeline(
