@@ -5,7 +5,7 @@ spacy>=3.7
 medspacy>=1.1
 transformers>=4.40
 torch>=2.2.0
-sentence-transformers==3.0.1
+sentence-transformers>=3.1.0
 optimum[onnxruntime]
 scikit-learn>=1.4
 thefuzz>=0.22.0
