@@ -126,37 +126,16 @@ class ExtractionPipeline:
                 "Install with: pip install transformers optimum[onnxruntime]"
             ) from exc
             
-        # Check if ONNX model exists locally
-        if Path(self.ONNX_MODEL_DIR).exists():
-            print(f"Loading optimized ONNX NER model from {self.ONNX_MODEL_DIR}...", flush=True)
-            
-            import onnxruntime as ort
-            session_options = ort.SessionOptions()
-            session_options.intra_op_num_threads = 1
-            session_options.inter_op_num_threads = 1
-            session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
-            
-            tokenizer = AutoTokenizer.from_pretrained(self.ONNX_MODEL_DIR)
-            ort_model = ORTModelForTokenClassification.from_pretrained(
-                self.ONNX_MODEL_DIR, 
-                session_options=session_options,
-                provider="CPUExecutionProvider"
-            )
-            
-            self._ner: Pipeline = hf_pipeline(
-                "ner",
-                model=ort_model,
-                tokenizer=tokenizer,
-                aggregation_strategy="first",
-                device="cpu",
-            )
+        # Bypass ONNX models completely to use native PyTorch models on ZeroGPU
+        if False:
+            pass
         else:
             print(f"Loading native PyTorch NER model: {model}...", flush=True)
             self._ner: Pipeline = hf_pipeline(
                 "ner",
                 model=model,
                 aggregation_strategy="first",
-                device="cpu",
+                # Let ZeroGPU move it to CUDA automatically
             )
             
         # Blank spaCy pipeline used only to create Doc containers for ConText.
