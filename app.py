@@ -1,8 +1,10 @@
 import gradio as gr
+import spaces
 from fastapi import FastAPI
 from server.main import app as fastapi_app
 
-# Create a dummy Gradio interface
+# Create a dummy Gradio interface that satisfies HF Zero GPU requirement
+@spaces.GPU
 def dummy():
     return "PV-Coder API is running on Hugging Face Spaces!"
 
