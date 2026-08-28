@@ -61,7 +61,7 @@ function SingleIntake() {
       try {
         const client = await Client.connect(window.API_URL)
         const res = await client.predict("/examples")
-        setExamples(res.data[0])
+        setExamples(JSON.parse(res.data[0]))
       } catch (err) {
         console.error("Could not load examples", err)
       }
@@ -85,7 +85,7 @@ function SingleIntake() {
         'WEB-' + Math.floor(Math.random()*1000)
       ])
       
-      setResult(res.data[0])
+      setResult(JSON.parse(res.data[0]))
     } catch (err) {
       setError("Failed to connect to the backend API.")
     } finally {
@@ -363,7 +363,7 @@ function BatchUpload() {
       const client = await Client.connect(window.API_URL)
       const res = await client.predict("/batch", [file])
       
-      setResults(res.data[0])
+      setResults(JSON.parse(res.data[0]))
     } catch (err) {
       alert("Error processing batch: " + err.message)
     } finally {

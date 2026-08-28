@@ -31,7 +31,7 @@ def get_builder():
 def analyze_api(narrative: str, case_id: str):
     builder = get_builder()
     case = builder.process(narrative=narrative, case_id=case_id)
-    return case.model_dump()
+    return json.dumps(case.model_dump())
 
 def export_pdf_api(case_dict_str: str):
     case_dict = json.loads(case_dict_str)
@@ -67,7 +67,7 @@ def batch_api(csv_filepath: str):
         case_id = str(row.get('case_id', f"BATCH-{idx}"))
         case = builder.process(narrative=str(row['narrative']), case_id=case_id)
         results.append(case.model_dump())
-    return results
+    return json.dumps(results)
 
 def batch_xml_zip_api(results_list_str: str):
     results_list = json.loads(results_list_str)
@@ -87,9 +87,9 @@ def batch_xml_zip_api(results_list_str: str):
 def get_examples():
     try:
         from server.main import load_examples
-        return load_examples()
+        return json.dumps(load_examples())
     except Exception:
-        return []
+        return json.dumps([])
 
 # Create the Gradio App
 with gr.Blocks(title="PV-Coder Engine API") as demo:
@@ -100,9 +100,9 @@ with gr.Blocks(title="PV-Coder Engine API") as demo:
         # Analyze
         t_narrative = gr.Textbox()
         t_case_id = gr.Textbox()
-        j_out_case = gr.JSON()
+        t_out_case = gr.Textbox()
         btn_analyze = gr.Button("Analyze")
-        btn_analyze.click(fn=analyze_api, inputs=[t_narrative, t_case_id], outputs=j_out_case, api_name="analyze")
+        btn_analyze.click(fn=analyze_api, inputs=[t_narrative, t_case_id], outputs=t_out_case, api_name="analyze")
         
         # PDF Export
         t_in_case = gr.Textbox()
@@ -117,9 +117,9 @@ with gr.Blocks(title="PV-Coder Engine API") as demo:
         
         # Batch
         f_in_csv = gr.File()
-        j_out_batch = gr.JSON()
+        t_out_batch = gr.Textbox()
         btn_batch = gr.Button("Batch")
-        btn_batch.click(fn=batch_api, inputs=f_in_csv, outputs=j_out_batch, api_name="batch")
+        btn_batch.click(fn=batch_api, inputs=f_in_csv, outputs=t_out_batch, api_name="batch")
         
         # Batch XML Zip
         t_in_batch = gr.Textbox()
@@ -128,9 +128,9 @@ with gr.Blocks(title="PV-Coder Engine API") as demo:
         btn_zip.click(fn=batch_xml_zip_api, inputs=t_in_batch, outputs=f_out_zip, api_name="batch_xml_zip")
         
         # Examples
-        j_out_examples = gr.JSON()
+        t_out_examples = gr.Textbox()
         btn_examples = gr.Button("Examples")
-        btn_examples.click(fn=get_examples, inputs=None, outputs=j_out_examples, api_name="examples")
+        btn_examples.click(fn=get_examples, inputs=None, outputs=t_out_examples, api_name="examples")
 
 if __name__ == "__main__":
     demo.launch()
