@@ -5,9 +5,9 @@ import { Client } from "@gradio/client"
 function App() {
   const [activeTab, setActiveTab] = useState('single')
   
-  // Set global API URL
+  // Set global API URL using the full HTTPS endpoint to avoid any resolution issues
   window.API_URL = import.meta.env.PROD 
-    ? 'drjollof/pv-coder-api' 
+    ? 'https://drjollof-pv-coder-api.hf.space' 
     : 'http://localhost:7860';
   
   return (
@@ -65,7 +65,7 @@ function SingleIntake() {
         const res = await client.predict("/examples")
         setExamples(JSON.parse(res.data[0]))
       } catch (err) {
-        console.error("Could not load examples", err)
+        console.error("Could not load examples:", err)
       }
     }
     loadExamples()
@@ -89,7 +89,8 @@ function SingleIntake() {
       
       setResult(JSON.parse(res.data[0]))
     } catch (err) {
-      setError("Failed to connect to the backend API.")
+      console.error("Analysis Error:", err)
+      setError(`API Error: ${err.message}`)
     } finally {
       setLoading(false)
     }
