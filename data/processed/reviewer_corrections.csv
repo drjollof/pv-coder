@@ -1,0 +1,3 @@
+case_id,extracted_phrase,model_prediction,model_score,reviewer_decision
+CASE-DEMO,jirovecii,Pneumocystis jirovecii pneumonia,0.6577895879745483,Pneumocystis jirovecii pneumonia (ID: 10073755) - Score: 0.658
+CASE-DEMO,recovered,Retching,0.5731634497642517,Reject All / Other
