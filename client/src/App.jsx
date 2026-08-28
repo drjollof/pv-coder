@@ -6,7 +6,9 @@ function App() {
   const [activeTab, setActiveTab] = useState('single')
   
   // Set global API URL
-  window.API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  window.API_URL = import.meta.env.PROD 
+    ? 'drjollof/pv-coder-api' 
+    : 'http://localhost:7860';
   
   return (
     <div>
