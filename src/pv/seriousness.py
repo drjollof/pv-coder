@@ -1,5 +1,5 @@
 import re
-from typing import List
+from typing import List, Tuple, Optional
 
 class SeriousnessClassifier:
     """
@@ -25,9 +25,9 @@ class SeriousnessClassifier:
     ]
     
     def __init__(self):
-        self.patterns = [re.compile(kw, re.IGNORECASE) for kw in self.SERIOUS_KEYWORDS]
+        self.patterns = [(kw.strip(r'\b'), re.compile(kw, re.IGNORECASE)) for kw in self.SERIOUS_KEYWORDS]
         
-    def is_serious(self, event_text: str, narrative: str) -> bool:
+    def is_serious(self, event_text: str, narrative: str) -> Tuple[bool, Optional[str], Optional[str]]:
         """
         Determines if an event is serious based on its text and the surrounding narrative.
         We consider an event serious if it inherently contains a seriousness
@@ -38,12 +38,24 @@ class SeriousnessClassifier:
         This is a common PV triage strategy to avoid missing critical cases.
         """
     
-        for pattern in self.patterns:
-            if pattern.search(event_text):
-                return True
+        for reason, pattern in self.patterns:
+            match = pattern.search(event_text)
+            if match:
+                # Find the sentence containing the match for evidence
+                start = max(0, event_text.rfind('.', 0, match.start()) + 1)
+                end = event_text.find('.', match.end())
+                end = end if end != -1 else len(event_text)
+                evidence = event_text[start:end].strip()
+                return True, reason.capitalize(), evidence
                 
-        for pattern in self.patterns:
-            if pattern.search(narrative):
-                return True
+        for reason, pattern in self.patterns:
+            match = pattern.search(narrative)
+            if match:
+                # Find the sentence containing the match for evidence
+                start = max(0, narrative.rfind('.', 0, match.start()) + 1)
+                end = narrative.find('.', match.end())
+                end = end if end != -1 else len(narrative)
+                evidence = narrative[start:end].strip()
+                return True, reason.capitalize(), evidence
                 
-        return False
+        return False, None, None

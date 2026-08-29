@@ -47,19 +47,40 @@ def export_xml_api(case_dict_str: str) -> str:
     return generate_e2b_xml(case)
 
 @spaces.GPU
-def batch_api(csv_b64: str) -> str:
+def batch_api(csv_b64: str):
     csv_bytes = base64.b64decode(csv_b64.encode("utf-8"))
     import io
     df = pd.read_csv(io.BytesIO(csv_bytes))
     if 'narrative' not in df.columns:
-        raise ValueError("CSV must contain a 'narrative' column")
+        yield json.dumps({"status": "error", "error": "CSV must contain a 'narrative' column"})
+        return
     builder = get_builder()
     results = []
+    total = len(df)
+    
     for idx, row in df.iterrows():
         case_id = str(row.get('case_id', f"BATCH-{idx}"))
-        case = builder.process(narrative=str(row['narrative']), case_id=case_id)
-        results.append(case.model_dump())
-    return json.dumps(results)
+        try:
+            case = builder.process(narrative=str(row['narrative']), case_id=case_id)
+            results.append(case.model_dump())
+        except Exception as e:
+            results.append({
+                "case_id": case_id,
+                "error": str(e),
+                "narrative": str(row.get('narrative', ''))
+            })
+            
+        yield json.dumps({
+            "status": "processing",
+            "current": idx + 1,
+            "total": total,
+            "latest_case_id": case_id
+        })
+        
+    yield json.dumps({
+        "status": "complete",
+        "results": results
+    })
 
 def batch_xml_zip_api(results_list_str: str) -> str:
     results_list = json.loads(results_list_str)

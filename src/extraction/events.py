@@ -84,14 +84,24 @@ class EventBuilder:
         re.compile(r"(died\s+from)", re.IGNORECASE)
     ]
 
-    def build(self, result: ExtractionResult, text: str) -> list[PharmacovigilanceEvent]:
+    def build(self, result: ExtractionResult, text: str) -> tuple[list[PharmacovigilanceEvent], list[dict]]:
         events = []
         effects = []
         indications = []
+        excluded_findings = []
 
         for disease in result.diseases:
-            if disease.negated or disease.historical or disease.other_experiencer:
-                indications.append(disease)
+            if disease.negated:
+                excluded_findings.append({"text": disease.text, "reason": "Negated finding", "start_char": disease.start_char, "end_char": disease.end_char})
+                continue
+            if disease.historical:
+                excluded_findings.append({"text": disease.text, "reason": "Historical finding", "start_char": disease.start_char, "end_char": disease.end_char})
+                continue
+            if disease.other_experiencer:
+                excluded_findings.append({"text": disease.text, "reason": "Other experiencer", "start_char": disease.start_char, "end_char": disease.end_char})
+                continue
+            if disease.hypothetical:
+                excluded_findings.append({"text": disease.text, "reason": "Hypothetical finding", "start_char": disease.start_char, "end_char": disease.end_char})
                 continue
 
             pre_text = text[max(0, disease.start_char - 30):disease.start_char]
@@ -143,7 +153,7 @@ class EventBuilder:
                 relations=relations
             ))
 
-        return events
+        return events, excluded_findings
 
     def _determine_relation_level(self, drug: ExtractedEntity, effect: ExtractedEntity, text: str) -> RelationLevel:
         start = min(drug.end_char, effect.end_char)

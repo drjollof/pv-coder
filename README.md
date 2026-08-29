@@ -20,7 +20,7 @@ This system is designed as a **Human-in-the-loop (HITL) decision support tool**,
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 The system is fully decoupled into a modern Web architecture:
 
@@ -38,7 +38,7 @@ The system is fully decoupled into a modern Web architecture:
 
 ---
 
-## 📂 Repository Layout
+## Repository Layout
 
 ```text
 pv-coder/
@@ -58,7 +58,7 @@ pv-coder/
 
 ---
 
-## 🚀 Quickstart
+## Quickstart
 
 Because the architecture is decoupled, you must run the backend and frontend in two separate terminals.
 
@@ -95,7 +95,7 @@ Open `http://localhost:5173` in your browser to access the PV-Coder interface.
 
 ---
 
-## 📊 Features
+## Features
 
 - **Single Intake Mode:** Paste a clinical narrative to see real-time extraction, MedDRA coding, and context parsing.
 - **Batch Processing:** Upload a CSV of hundreds of narratives and process them concurrently.
@@ -104,7 +104,7 @@ Open `http://localhost:5173` in your browser to access the PV-Coder interface.
 
 ---
 
-## 🛡️ TAC Gold Guard
+## TAC Gold Guard
 
 If you are a developer interacting with the raw datasets (`data/TAC2017/`), note that the `gold_xml` split is the held-out evaluation set for the normalization pipeline.
 `src/data/tac_parser.py` raises `PermissionError` if any code attempts to read the gold split without passing `allow_gold=True` explicitly to prevent data leakage during training.
