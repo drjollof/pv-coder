@@ -33,6 +33,14 @@ class SemanticNormalizer:
         dictionary_df must contain 'meddra_pt_id' and 'meddra_pt'.
         If faiss_index_path is provided, it loads the precomputed index instead of encoding on startup.
         """
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as exc:
+            raise ImportError(
+                "sentence_transformers is required for semantic normalization. "
+                "Install with: pip install sentence-transformers"
+            ) from exc
+            
         self.dict_df = dictionary_df.copy()
         self.dict_texts = self.dict_df['meddra_pt'].str.lower().tolist()
         
@@ -50,13 +58,6 @@ class SemanticNormalizer:
         
         if not loaded:
             print(f"Loading native PyTorch SapBERT model: {model_name}...", flush=True)
-            try:
-                from sentence_transformers import SentenceTransformer
-            except ImportError as exc:
-                raise ImportError(
-                    "sentence_transformers is required for semantic normalization. "
-                    "Install with: pip install sentence-transformers"
-                ) from exc
             self.model = SentenceTransformer(model_name)
             
         self.faiss_index = None
