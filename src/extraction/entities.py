@@ -127,16 +127,30 @@ class ExtractionPipeline:
             ) from exc
             
         import os
-        # Use ONNX if models exist locally AND we are not running on HuggingFace Spaces (where ZeroGPU is available)
         if Path(self.ONNX_MODEL_DIR).exists() and not os.environ.get("SPACE_ID"):
-            print(f"Loading optimized ONNX NER model from {self.ONNX_MODEL_DIR}...", flush=True)
+            try:
+                print(f"Loading optimized ONNX NER model from {self.ONNX_MODEL_DIR}...", flush=True)
+                tokenizer = AutoTokenizer.from_pretrained(self.ONNX_MODEL_DIR)
+                model_onnx = ORTModelForTokenClassification.from_pretrained(self.ONNX_MODEL_DIR)
+                self._ner = hf_pipeline(
+                    "ner",
+                    model=model_onnx,
+                    tokenizer=tokenizer,
+                    aggregation_strategy="first"
+                )
+            except Exception as e:
+                print(f"ONNX NER load warning: {e}. Falling back to native model: {model}...", flush=True)
+                self._ner = hf_pipeline(
+                    "ner",
+                    model=model,
+                    aggregation_strategy="first"
+                )
         else:
             print(f"Loading native PyTorch NER model: {model}...", flush=True)
-            self._ner: Pipeline = hf_pipeline(
+            self._ner = hf_pipeline(
                 "ner",
                 model=model,
-                aggregation_strategy="first",
-                # Let ZeroGPU move it to CUDA automatically
+                aggregation_strategy="first"
             )
             
         # Blank spaCy pipeline used only to create Doc containers for ConText.
