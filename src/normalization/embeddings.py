@@ -27,23 +27,28 @@ class SemanticNormalizer:
         _ROOT = Path(__file__).parent.parent.parent
         onnx_dir = _ROOT / "models" / "sapbert_onnx_quantized"
         import os
+        loaded = False
         if onnx_dir.exists() and not os.environ.get("SPACE_ID"):
-            print(f"Loading optimized ONNX SapBERT model from {onnx_dir}...", flush=True)
-            
-            import onnxruntime as ort
-            session_options = ort.SessionOptions()
-            session_options.intra_op_num_threads = 1
-            session_options.inter_op_num_threads = 1
-            
-            self.model = SentenceTransformer(
-                str(onnx_dir), 
-                model_kwargs={
-                    "provider": "CPUExecutionProvider",
-                    "session_options": session_options
-                },
-                device="cpu"
-            )
-        else:
+            try:
+                print(f"Loading optimized ONNX SapBERT model from {onnx_dir}...", flush=True)
+                import onnxruntime as ort
+                session_options = ort.SessionOptions()
+                session_options.intra_op_num_threads = 1
+                session_options.inter_op_num_threads = 1
+                self.model = SentenceTransformer(
+                    str(onnx_dir), 
+                    backend="onnx",
+                    model_kwargs={
+                        "provider": "CPUExecutionProvider",
+                        "session_options": session_options
+                    },
+                    device="cpu"
+                )
+                loaded = True
+            except Exception as e:
+                print(f"ONNX SapBERT load warning: {e}. Falling back to native model: {model_name}...", flush=True)
+        
+        if not loaded:
             print(f"Loading native PyTorch SapBERT model: {model_name}...", flush=True)
             self.model = SentenceTransformer(model_name)
             
