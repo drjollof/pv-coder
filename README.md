@@ -62,24 +62,33 @@ pv-coder/
 
 Because the architecture is decoupled, you must run the backend and frontend in two separate terminals.
 
-### 1. Start the Gradio Backend
-Ensure you have Python 3.10+ installed.
+### 1. Start the Gradio Backend (Python)
+Ensure Python 3.10+ is installed. In your main terminal:
 
 ```bash
-# 1. Install dependencies
+# Create and activate virtual environment (Windows PowerShell)
+python -m venv venv
+.\venv\Scripts\activate
+
+# Install backend dependencies
 pip install -r requirements.txt
 
-# 2. Start the Gradio headless server
+# Start the Gradio headless server
 python app.py
 ```
-*Note: The NLP engine is configured to intelligently check the environment. If run locally, it uses optimized INT8 ONNX models for fast CPU inference. If run on a Hugging Face ZeroGPU Space, it dynamically downloads the native PyTorch models to leverage GPU acceleration.*
+*Note: The NLP engine automatically uses optimized INT8 ONNX models locally for fast CPU inference, while Hugging Face ZeroGPU leverage PyTorch GPU acceleration.*
 
-### 2. Start the React Frontend
-Ensure you have Node.js installed. Open a new terminal window:
+### 2. Start the React Frontend (Node.js)
+Ensure Node.js is installed. Open a **new terminal window** (no virtual environment required):
 
 ```bash
+# Navigate to the client directory
 cd client
+
+# Install frontend dependencies
 npm install
+
+# Start the development server
 npm run dev
 ```
 Open `http://localhost:5173` in your browser to access the PV-Coder interface.
