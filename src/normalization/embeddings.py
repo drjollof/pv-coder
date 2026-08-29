@@ -6,6 +6,26 @@ from sklearn.metrics.pairwise import cosine_similarity
 import faiss
 
 
+class _ONNXSapBERT:
+    """Lightweight ONNX runtime wrapper providing .encode() compatibility for SentenceTransformers."""
+    def __init__(self, model_dir: str):
+        from optimum.onnxruntime import ORTModelForFeatureExtraction
+        from transformers import AutoTokenizer
+        self.model = ORTModelForFeatureExtraction.from_pretrained(model_dir)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
+
+    def encode(self, sentences: List[str], show_progress_bar: bool = False, convert_to_numpy: bool = True) -> np.ndarray:
+        import torch
+        inputs = self.tokenizer(sentences, padding=True, truncation=True, return_tensors="pt")
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            mask = inputs['attention_mask'].unsqueeze(-1).to(outputs.last_hidden_state.dtype)
+            embeddings = (outputs.last_hidden_state * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+            if convert_to_numpy:
+                return embeddings.cpu().numpy()
+            return embeddings
+
+
 class SemanticNormalizer:
     def __init__(self, dictionary_df: pd.DataFrame, faiss_index_path: str = None, model_name: str = "cambridgeltl/SapBERT-from-PubMedBERT-fulltext"):
         """
@@ -13,14 +33,6 @@ class SemanticNormalizer:
         dictionary_df must contain 'meddra_pt_id' and 'meddra_pt'.
         If faiss_index_path is provided, it loads the precomputed index instead of encoding on startup.
         """
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as exc:
-            raise ImportError(
-                "sentence_transformers is required for semantic normalization. "
-                "Install with: pip install sentence-transformers"
-            ) from exc
-            
         self.dict_df = dictionary_df.copy()
         self.dict_texts = self.dict_df['meddra_pt'].str.lower().tolist()
         
@@ -31,25 +43,20 @@ class SemanticNormalizer:
         if onnx_dir.exists() and not os.environ.get("SPACE_ID"):
             try:
                 print(f"Loading optimized ONNX SapBERT model from {onnx_dir}...", flush=True)
-                import onnxruntime as ort
-                session_options = ort.SessionOptions()
-                session_options.intra_op_num_threads = 1
-                session_options.inter_op_num_threads = 1
-                self.model = SentenceTransformer(
-                    str(onnx_dir), 
-                    backend="onnx",
-                    model_kwargs={
-                        "provider": "CPUExecutionProvider",
-                        "session_options": session_options
-                    },
-                    device="cpu"
-                )
+                self.model = _ONNXSapBERT(str(onnx_dir))
                 loaded = True
             except Exception as e:
                 print(f"ONNX SapBERT load warning: {e}. Falling back to native model: {model_name}...", flush=True)
         
         if not loaded:
             print(f"Loading native PyTorch SapBERT model: {model_name}...", flush=True)
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as exc:
+                raise ImportError(
+                    "sentence_transformers is required for semantic normalization. "
+                    "Install with: pip install sentence-transformers"
+                ) from exc
             self.model = SentenceTransformer(model_name)
             
         self.faiss_index = None
