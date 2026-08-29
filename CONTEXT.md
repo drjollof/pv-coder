@@ -4,25 +4,32 @@
 PV-Coder is an NLP-assisted Pharmacovigilance Case Intake System designed to automate the extraction and coding of adverse events from clinical narratives into MedDRA preferred terms. The system provides both a Single Intake view for deep-dive analysis and a Batch Upload dashboard for processing large CSV files, featuring Human-in-the-Loop (HitL) validation flows to ensure accuracy.
 
 ## Phase Tracker
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 1 | DONE | Core UI layout improvements and MedSpaCy context styling (excluded findings). |
-| 2 | DONE | Single Intake HitL Review implementation. |
-| 3 | DONE | PDF Export generation. |
-| 4 | DONE | Batch Dashboard UI and real-time processing metric cards. |
-| 5 | DONE | Batch HitL Inline Review and Validated JSON export. |
-| 6 | PENDING | Implementation of Drug Dictionary & Entity tracking. |
-| Future | PENDING | Global SQL Database to track historical validated cases across sessions. |
+
+| Phase | Description | Status |
+|---|---|---|
+| **Phase 1** | Model optimization (ONNX / Quantization) | `Done` |
+| **Phase 2** | Local API setup (FastAPI + React) | `Done` |
+| **Phase 3** | Zero-Shot Extraction Engine (LLM prompts) | `Done` |
+| **Phase 4** | Normalization & Dictionary mapping (Faiss) | `Done` |
+| **Phase 5** | Batch Processing & Reporting (E2B XML) | `Done` |
+| **Phase 6** | UI Polishing & Human-in-the-Loop workflows | `Done` |
+| **Phase 7** | Implement P0 Features & Frontend Refactoring | `Done` |
+| **Phase 8** | Implement P1 Features | `Pending` |
 
 ## What Was Built
-- **Backend**: FastAPI/Gradio backend (`app.py`, `src/pv/builder.py`) wrapping HuggingFace Token Classification and MedSpaCy ConText. Includes yield-based generators for real-time progress streaming.
-- **Frontend**: React-based UI in `client/src/App.jsx` using `@gradio/client` for websocket streaming. Features interactive text highlighting, case tables, and inline manual review forms.
-- **Export Capabilities**: Supports exporting validated cases to JSON (for ML retraining), CSV, E2B XML, and PDF.
+*   **FastAPI Backend**: Provides `/analyze` and `/batch` endpoints.
+*   **React Frontend (Refactored)**: Clean, modularized architecture. Split monolithic `App.jsx` into smaller components (`SingleIntake.jsx`, `BatchUpload.jsx`, `HighlightedText.jsx`).
+*   **Zero-Shot Extraction**: Prompts fine-tuned for Llama-3/Mistral to identify AEs and drugs.
+*   **Faiss Indexing**: Uses SapBERT embeddings for semantic search over MedDRA.
+*   **E2B(R3) Generation**: Creates XML reports per ICH standards.
+*   **P0 Feature Set**: Fully implemented features P0.1 to P0.15 (including Recharts for batch analytics).
 
 ## Key Design Decisions
-- **HitL Workflow**: In Batch Mode, human reviews are auto-saved in React State to accelerate the validation workflow, rather than forcing the user to click "Validate Case" for every single event.
-- **Context Exclusion**: Pre-existing medical conditions (e.g., following "Medical history included...") are explicitly flagged as `HISTORICAL` and excluded from adverse event extraction.
-- **Future Database Architecture**: To support cross-session analysis and keep a global record of all reviewed cases, a centralized database (SQLite/Postgres) will be added in a future phase. For now, JSON exports serve as the portable ground-truth dataset.
+*   **Optimized Models**: Quantized models to ONNX to run locally on CPU without memory constraints.
+*   **Hybrid NLP Pipeline**: Uses lightweight LLM for extraction, and dense retrieval (SapBERT + Faiss) for normalization (much faster and more reliable than pure LLM).
+*   **Frontend Modularity**: The `App.jsx` was split into smaller components to keep context window manageable for AI agents moving forward.
+*   **Dependency Pinning**: Strictly kept `sentence-transformers==3.0.1` and `gradio==4.44.1`. Used `_ONNXSapBERT` wrapper to bypass compatibility issues with `huggingface-hub`.
 
 ## Next Session Prompt
-> "Read pv-coder-consolidated-feature-Improvement-specification.md and let's move on to Phase 6: Drug Normalization and the internal Drug Dictionary."
+*Paste this to resume work in the next session:*
+> "We have completed the P0 features and refactored the frontend React code into smaller components inside `client/src/components/`. Please review `CONTEXT.md` and `pv-coder-consolidated-feature-Improvement-specification.md` and let's begin implementing the P1 features."

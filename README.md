@@ -104,7 +104,4 @@ Open `http://localhost:5173` in your browser to access the PV-Coder interface.
 
 ---
 
-## TAC Gold Guard
 
-If you are a developer interacting with the raw datasets (`data/TAC2017/`), note that the `gold_xml` split is the held-out evaluation set for the normalization pipeline.
-`src/data/tac_parser.py` raises `PermissionError` if any code attempts to read the gold split without passing `allow_gold=True` explicitly to prevent data leakage during training.

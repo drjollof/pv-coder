@@ -114,6 +114,23 @@ def get_examples() -> str:
     except Exception:
         return json.dumps([])
 
+def system_status_api() -> str:
+    import torch
+    is_gpu = torch.cuda.is_available() or os.environ.get("SPACE_ID") is not None
+    try:
+        builder = get_builder()
+        meddra_version = getattr(builder, 'meddra_version', "27.0 (Default)")
+        engine_ready = True
+    except:
+        meddra_version = "Unknown"
+        engine_ready = False
+        
+    return json.dumps({
+        "engine_ready": engine_ready,
+        "runtime": "GPU Inference" if is_gpu else "Local CPU",
+        "meddra_version": meddra_version
+    })
+
 with gr.Blocks(title="PV-Coder Engine API") as demo:
     gr.Markdown("## PV-Coder API\nHeadless NLP backend for pharmacovigilance case coding.")
 
@@ -141,6 +158,9 @@ with gr.Blocks(title="PV-Coder Engine API") as demo:
 
         o_examples = gr.Textbox()
         gr.Button("Examples").click(fn=get_examples, inputs=None, outputs=o_examples, api_name="examples")
+
+        o_status = gr.Textbox()
+        gr.Button("Status").click(fn=system_status_api, inputs=None, outputs=o_status, api_name="status")
 
 if __name__ == "__main__":
     demo.launch()

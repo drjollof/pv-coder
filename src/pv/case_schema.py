@@ -34,3 +34,5 @@ class PharmacovigilanceCase(BaseModel):
     is_serious_case: bool = Field(..., description="True if ANY event in the case is serious.")
     case_seriousness_reason: Optional[str] = Field(None, description="The primary reason this case was flagged as serious.")
     case_seriousness_evidence: Optional[str] = Field(None, description="The primary evidence from the narrative for case seriousness.")
+    pipeline_timings: Optional[Dict[str, float]] = Field(None, description="Execution time for each pipeline stage.")
+    meddra_version: Optional[str] = Field(None, description="The loaded MedDRA version.")

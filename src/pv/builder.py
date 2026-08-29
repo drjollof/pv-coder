@@ -10,8 +10,8 @@ from src.normalization.embeddings import SemanticNormalizer
 from src.normalization.drugs import DrugNormalizer
 from src.pv.case_schema import PharmacovigilanceCase, NormalizedEvent, ExtractedDrug
 from src.pv.seriousness import SeriousnessClassifier
-
-
+import time
+from src.normalization.synonyms import SynonymNormalizer
 class CaseBuilder:
     def __init__(self, dict_path: str, faiss_index_path: str = None):
         print("Initializing NER Pipeline...", flush=True)
@@ -30,19 +30,34 @@ class CaseBuilder:
         print("Initializing Seriousness Classifier...", flush=True)
         self.seriousness = SeriousnessClassifier()
 
+        print("Initializing Synonym Normalizer...", flush=True)
+        self.synonym_normalizer = SynonymNormalizer()
+
+        # MedDRA version is stored in the dictionary if available, otherwise default
+        self.meddra_version = "27.0 (Default)" # In a real scenario, extract from dictionary metadata
+
     def process(self, narrative: str, case_id: str) -> PharmacovigilanceCase:
         """
         Processes a raw clinical narrative into a structured PharmacovigilanceCase.
         """
+        timings = {}
+        t0 = time.time()
         print(f"[{case_id}] Extracting entities...", flush=True)
         candidates = self.ner.extract(narrative)
+        t1 = time.time()
+        timings["Extraction"] = round(t1 - t0, 3)
+        
         print(f"[{case_id}] Building events...", flush=True)
         events, excluded_findings = self.event_builder.build(candidates, narrative)
+        t2 = time.time()
+        timings["Context"] = round(t2 - t1, 3)
+        
         adverse_events = [e for e in events if e.event_type == EventType.ADVERSE_EVENT]
 
         normalized_events = []
         for ae in adverse_events:
-            norm_results, review_status = self.semantic.match(ae.effect.text, top_k=3)
+            expanded_effect = self.synonym_normalizer.normalize(ae.effect.text)
+            norm_results, review_status = self.semantic.match(expanded_effect, top_k=3)
 
             top_candidates = []
             if norm_results:
@@ -95,6 +110,9 @@ class CaseBuilder:
                 case_seriousness_reason = e.seriousness_reason
                 case_seriousness_evidence = e.seriousness_evidence
                 break
+            
+        t3 = time.time()
+        timings["MedDRA coding"] = round(t3 - t2, 3)
 
         extracted_drugs = []
         for d in candidates.drugs:
@@ -107,6 +125,10 @@ class CaseBuilder:
                 identifiers=norm_dict.get('identifiers') if norm_dict else None
             ))
 
+        t4 = time.time()
+        timings["Case building"] = round(t4 - t3, 3)
+        timings["Total"] = round(t4 - t0, 3)
+
         return PharmacovigilanceCase(
             case_id=case_id,
             narrative=narrative,
@@ -115,5 +137,7 @@ class CaseBuilder:
             excluded_findings=excluded_findings,
             is_serious_case=is_serious_case,
             case_seriousness_reason=case_seriousness_reason,
-            case_seriousness_evidence=case_seriousness_evidence
+            case_seriousness_evidence=case_seriousness_evidence,
+            pipeline_timings=timings,
+            meddra_version=self.meddra_version
         )

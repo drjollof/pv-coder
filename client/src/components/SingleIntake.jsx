@@ -1,41 +1,7 @@
-function HighlightedText({ text, events, drugs, excluded }) {
-  const spans = [];
-  (events || []).forEach((e, i) => { if(e.start_char != null) spans.push({ start: e.start_char, end: e.end_char, type: 'event', label: 'Adverse Event', id: "ev_", color: 'var(--accent-primary)', bg: 'rgba(99, 102, 241, 0.2)' }); });
-  (drugs || []).forEach((d, i) => { if(d.start_char != null) spans.push({ start: d.start_char, end: d.end_char, type: 'drug', label: 'Suspected Drug', id: "dr_", color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.2)' }); });
-  (excluded || []).forEach((x, i) => { if(x.start_char != null) spans.push({ start: x.start_char, end: x.end_char, type: 'excluded', label: "Excluded: " + x.reason, id: "ex_", color: '#6b7280', bg: 'rgba(107, 114, 128, 0.2)' }); });
-  
-  spans.sort((a, b) => a.start - b.start);
-  
-  // Greedy non-overlapping
-  const validSpans = [];
-  let lastEnd = 0;
-  for (const s of spans) {
-    if (s.start >= lastEnd && s.end > s.start) {
-      validSpans.push(s);
-      lastEnd = s.end;
-    }
-  }
-
-  const parts = [];
-  let cursor = 0;
-  validSpans.forEach(s => {
-    if (s.start > cursor) {
-      parts.push(<span key={"t_"}>{text.substring(cursor, s.start)}</span>);
-    }
-    parts.push(
-      <span key={s.id} style={{ backgroundColor: s.bg, color: s.color, padding: '2px 4px', borderRadius: '4px', border: "1px solid " + s.color, cursor: 'pointer', position: 'relative' }} title={s.label}>
-        {text.substring(s.start, s.end)}
-      </span>
-    );
-    cursor = s.end;
-  });
-  if (cursor < text.length) {
-    parts.push(<span key={"t_"}>{text.substring(cursor)}</span>);
-  }
-
-  return <div style={{ lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>{parts}</div>;
-}
-
+import React, { useState, useEffect } from 'react';
+import { AlertTriangle, CheckCircle, Download, FileText, ChevronDown, ChevronRight, Info, Circle, CircleDot } from 'lucide-react';
+import { Client } from "@gradio/client";
+import HighlightedText from './HighlightedText';
 function SingleIntake() {
   const [narrative, setNarrative] = useState('')
   const [loading, setLoading] = useState(false)
@@ -46,8 +12,70 @@ function SingleIntake() {
   const [manualInputs, setManualInputs] = useState({})
   const [validated, setValidated] = useState(false)
   const [expandedRows, setExpandedRows] = useState({})
-  
+  const [showTechView, setShowTechView] = useState(false)
+
   const [examples, setExamples] = useState([])
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      
+      const expandedIdxStr = Object.keys(expandedRows).find(k => expandedRows[k]);
+      if (!expandedIdxStr) return;
+      
+      const i = parseInt(expandedIdxStr);
+      const ev = result?.events[i];
+      if (!ev) return;
+
+      const reviewableIndices = result?.events.map((evt, idx) => evt.review_status === "Human Review" ? idx : -1).filter(idx => idx !== -1) || [];
+      const currentIdxInReviewable = reviewableIndices.indexOf(i);
+
+      if (e.key === 'Escape') {
+        setExpandedRows(prev => ({...prev, [i]: false}));
+        return;
+      }
+
+      if (e.key === 'ArrowDown') {
+         e.preventDefault();
+         if (currentIdxInReviewable !== -1 && currentIdxInReviewable < reviewableIndices.length - 1) {
+             const nextI = reviewableIndices[currentIdxInReviewable + 1];
+             setExpandedRows({ [nextI]: true });
+         } else if (i < result.events.length - 1) {
+             setExpandedRows({ [i+1]: true });
+         }
+      }
+      
+      if (e.key === 'ArrowUp') {
+         e.preventDefault();
+         if (currentIdxInReviewable > 0) {
+             const prevI = reviewableIndices[currentIdxInReviewable - 1];
+             setExpandedRows({ [prevI]: true });
+         } else if (i > 0) {
+             setExpandedRows({ [i-1]: true });
+         }
+      }
+
+      if (ev.review_status === "Human Review" && !validated) {
+        if (e.key >= '1' && e.key <= '3') {
+          const candIdx = parseInt(e.key) - 1;
+          if (ev.top_candidates && ev.top_candidates[candIdx]) {
+            const cand = ev.top_candidates[candIdx];
+            handleCorrection(i, cand.id, cand.pt);
+          }
+        } else if (e.key === '4') {
+          handleCorrection(i, manualInputs[i]?.id || "REJECT", manualInputs[i]?.pt || "Reject / Other");
+        } else if (e.key === 'Enter') {
+          setExpandedRows(prev => ({...prev, [i]: false}));
+          if (currentIdxInReviewable !== -1 && currentIdxInReviewable < reviewableIndices.length - 1) {
+             const nextI = reviewableIndices[currentIdxInReviewable + 1];
+             setExpandedRows(prev => ({...prev, [nextI]: true}));
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [expandedRows, result, validated, manualInputs]);
 
   useEffect(() => {
     async function loadExamples() {
@@ -73,12 +101,12 @@ function SingleIntake() {
   }
 
   const toggleRow = (idx) => {
-    setExpandedRows(prev => ({...prev, [idx]: !prev[idx]}));
+    setExpandedRows(prev => ({ ...prev, [idx]: !prev[idx] }));
   }
 
   const handleAnalyze = async () => {
     if (!narrative.trim()) return
-    
+
     setLoading(true)
     setError('')
     setResult(null)
@@ -86,12 +114,12 @@ function SingleIntake() {
     setValidated(false)
     setExpandedRows({})
     setShowJson(false)
-    
+
     try {
       const client = await Client.connect(window.API_URL)
       const res = await client.predict("/analyze", [
-        narrative, 
-        'WEB-' + Math.floor(Math.random()*1000)
+        narrative,
+        'WEB-' + Math.floor(Math.random() * 1000)
       ])
       const data = JSON.parse(res.data[0])
       if (data.error) {
@@ -99,7 +127,7 @@ function SingleIntake() {
         setError("Backend Error: " + data.error + "\n\n" + data.traceback)
         return
       }
-      
+
       // Auto-expand rows that require review
       const autoExpand = {};
       data.events?.forEach((ev, i) => {
@@ -108,6 +136,9 @@ function SingleIntake() {
       setExpandedRows(autoExpand);
 
       setResult(data)
+      if (window.addCaseToHistory) {
+        window.addCaseToHistory(data);
+      }
     } catch (err) {
       console.error("Analysis Error:", err)
       setError("API Error: " + err.message)
@@ -168,8 +199,8 @@ function SingleIntake() {
     }))
     setCorrections(prev => ({
       ...prev,
-      [eventIdx]: { 
-        ...prev[eventIdx], 
+      [eventIdx]: {
+        ...prev[eventIdx],
         pt: field === 'pt' ? value : (manualInputs[eventIdx]?.pt || 'Reject / Other'),
         id: field === 'id' ? value : (manualInputs[eventIdx]?.id || 'REJECT')
       }
@@ -177,7 +208,7 @@ function SingleIntake() {
   }
 
   const reviewEvents = result?.events?.filter(e => e.review_status === "Human Review") || []
-  
+
   const getWorkflowState = () => {
     if (!result && !loading) return 0;
     if (loading) return 1;
@@ -200,12 +231,16 @@ function SingleIntake() {
 
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
         {workflowSteps.map((step, idx) => (
-          <span key={step} style={{ 
+          <span key={step} style={{
             color: idx === currentStep ? 'var(--accent-primary)' : (idx < currentStep ? 'var(--success)' : 'inherit'),
-            fontWeight: idx === currentStep ? 'bold' : 'normal'
+            fontWeight: idx === currentStep ? 'bold' : 'normal',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.25rem'
           }}>
-            {idx < currentStep ? '?' : (idx === currentStep ? '?' : '?')} {step}
-            {idx < workflowSteps.length - 1 && ' ---'}
+            {idx < currentStep ? <CheckCircle size={14} /> : (idx === currentStep ? <CircleDot size={14} /> : <Circle size={14} />)}
+            {step}
+            {idx < workflowSteps.length - 1 && <span style={{ margin: '0 0.5rem', opacity: 0.3 }}>───</span>}
           </span>
         ))}
       </div>
@@ -215,28 +250,28 @@ function SingleIntake() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
             <h3>Clinical Narrative</h3>
             {examples.length > 0 && (
-              <select 
-                className="select-dropdown" 
+              <select
+                className="select-dropdown"
                 onChange={(e) => {
                   if (e.target.value !== "") setNarrative(examples[parseInt(e.target.value)])
                 }}
               >
                 <option value="">Load an example case...</option>
                 {examples.map((ex, i) => (
-                  <option key={i} value={i}>Clinical Case #{i+1}</option>
+                  <option key={i} value={i}>Clinical Case #{i + 1}</option>
                 ))}
               </select>
             )}
           </div>
-          <textarea 
-            className="textarea" 
+          <textarea
+            className="textarea"
             placeholder="Paste unstructured clinical text here..."
             value={narrative}
             onChange={(e) => setNarrative(e.target.value)}
           />
-          <button 
-            className="btn btn-primary" 
-            onClick={handleAnalyze} 
+          <button
+            className="btn btn-primary"
+            onClick={handleAnalyze}
             disabled={!narrative.trim()}
             style={{ width: '100%', marginTop: '1rem' }}
           >
@@ -250,10 +285,10 @@ function SingleIntake() {
           <div className="spinner" style={{ margin: '0 auto 1rem auto' }}></div>
           <h3>Analyzing case...</h3>
           <div style={{ color: 'var(--text-secondary)', marginTop: '1rem', textAlign: 'left', display: 'inline-block' }}>
-            <p>? Extracting entities</p>
-            <p>? Resolving clinical context</p>
-            <p>? Mapping MedDRA terms</p>
-            <p>? Building case</p>
+            <p><CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Extracting entities</p>
+            <p><CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Resolving clinical context</p>
+            <p><CircleDot size={14} style={{ verticalAlign: 'middle', marginRight: '4px', color: 'var(--accent-primary)' }} /> Mapping MedDRA terms</p>
+            <p><Circle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Building case</p>
           </div>
         </div>
       )}
@@ -268,13 +303,13 @@ function SingleIntake() {
 
       {result && (
         <div style={{ animation: 'slideIn 0.3s ease-out' }}>
-          
+
           {/* CASE OVERVIEW PANEL */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '1rem', background: 'var(--bg-tertiary)', padding: '1.5rem', borderRadius: 'var(--radius-md)', marginBottom: '2rem', border: '1px solid var(--glass-border)' }}>
             <div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Seriousness</div>
-              <div style={{ fontWeight: 'bold', color: result.is_serious_case ? 'var(--warning)' : 'var(--success)' }}>
-                {result.is_serious_case ? '? Serious' : '? Non-serious'}
+              <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.25rem', color: result.is_serious_case ? 'var(--warning)' : 'var(--success)' }}>
+                {result.is_serious_case ? <><AlertTriangle size={16} /> Serious</> : <><CheckCircle size={16} /> Non-serious</>}
               </div>
               {result.is_serious_case && result.case_seriousness_reason && (
                 <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
@@ -284,8 +319,8 @@ function SingleIntake() {
             </div>
             <div>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Processing Status</div>
-              <div style={{ fontWeight: 'bold', color: reviewEvents.length > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                {reviewEvents.length > 0 ? '? Review Required' : '? Auto-coded'}
+              <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.25rem', color: reviewEvents.length > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                {reviewEvents.length > 0 ? <><AlertTriangle size={16} /> Review Required</> : <><CheckCircle size={16} /> Auto-coded</>}
               </div>
             </div>
             <div>
@@ -296,7 +331,7 @@ function SingleIntake() {
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Auto-coded</div>
               <div style={{ fontWeight: 'bold' }}>{result.events.length - reviewEvents.length}</div>
             </div>
-            
+
             {/* Extended Seriousness Evidence */}
             {result.is_serious_case && result.case_seriousness_evidence && (
               <div style={{ gridColumn: '1 / -1', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--glass-border)', fontSize: '0.9rem' }}>
@@ -311,17 +346,17 @@ function SingleIntake() {
             <h3 style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between' }}>
               Semantic Case View
               <span style={{ fontSize: '0.8rem', fontWeight: 'normal', color: 'var(--text-secondary)', display: 'flex', gap: '1rem' }}>
-                <span><span style={{ display: 'inline-block', width: '10px', height: '10px', background: 'var(--accent-primary)', marginRight: '4px' }}></span> Adverse Event</span>
-                <span><span style={{ display: 'inline-block', width: '10px', height: '10px', background: '#3b82f6', marginRight: '4px' }}></span> Suspected Drug</span>
-                <span><span style={{ display: 'inline-block', width: '10px', height: '10px', background: '#6b7280', marginRight: '4px' }}></span> Excluded</span>
+                <span><span style={{ display: 'inline-block', width: '10px', height: '10px', background: '#f43f5e', marginRight: '4px' }}></span> Adverse Event</span>
+                <span><span style={{ display: 'inline-block', width: '10px', height: '10px', background: '#f59e0b', marginRight: '4px' }}></span> Suspected Drug</span>
+                <span><span style={{ display: 'inline-block', width: '10px', height: '10px', background: '#94a3b8', marginRight: '4px' }}></span> Excluded</span>
               </span>
             </h3>
             <div style={{ padding: '1.5rem', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--glass-border)', color: 'var(--text-primary)' }}>
-              <HighlightedText 
-                text={result.narrative} 
-                events={result.events} 
-                drugs={result.extracted_drugs} 
-                excluded={result.excluded_findings} 
+              <HighlightedText
+                text={result.narrative}
+                events={result.events}
+                drugs={result.extracted_drugs}
+                excluded={result.excluded_findings}
               />
             </div>
           </div>
@@ -358,19 +393,19 @@ function SingleIntake() {
                   <React.Fragment key={i}>
                     <tr onClick={() => toggleRow(i)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--glass-border)', background: expandedRows[i] ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
                       <td style={{ padding: '1rem 0.5rem' }}>
-                        {expandedRows[i] ? <ChevronDown size={14} style={{ marginRight: '8px', verticalAlign: 'middle' }}/> : <ChevronRight size={14} style={{ marginRight: '8px', verticalAlign: 'middle' }}/>}
+                        {expandedRows[i] ? <ChevronDown size={14} style={{ marginRight: '8px', verticalAlign: 'middle' }} /> : <ChevronRight size={14} style={{ marginRight: '8px', verticalAlign: 'middle' }} />}
                         {ev.effect_text}
                       </td>
                       <td style={{ padding: '1rem 0.5rem' }}>
-                        {ev.review_status === 'Auto-coded' ? 
-                          <span style={{ color: 'var(--success)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><CheckCircle size={14} /> Auto-coded</span> : 
+                        {ev.review_status === 'Auto-coded' ?
+                          <span style={{ color: 'var(--success)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><CheckCircle size={14} /> Auto-coded</span> :
                           <span style={{ color: 'var(--warning)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={14} /> Review</span>}
                       </td>
                       <td style={{ padding: '1rem 0.5rem' }}>{corrections[i]?.pt || ev.meddra_pt}</td>
                       <td style={{ padding: '1rem 0.5rem' }}>{corrections[i]?.id || ev.meddra_pt_id}</td>
-                      <td style={{ padding: '1rem 0.5rem' }}>{ev.suspected_drugs.length > 0 ? ev.suspected_drugs.join(', ') : 'None'}</td>
+                      <td style={{ padding: '1rem 0.5rem' }}>{ev.suspected_drugs.length > 0 ? ev.suspected_drugs.map(d => typeof d === 'string' ? d : (d.canonical_name ? `${d.canonical_name} (${d.text})` : d.text)).join(', ') : 'None'}</td>
                     </tr>
-                    
+
                     {/* EXPANDED DETAIL ROW */}
                     {expandedRows[i] && (
                       <tr>
@@ -378,7 +413,7 @@ function SingleIntake() {
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
                             {/* AI Decision Panel */}
                             <div>
-                              <h4 style={{ color: 'var(--text-secondary)', marginBottom: '0.8rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Info size={14}/> AI DECISION DETAIL</h4>
+                              <h4 style={{ color: 'var(--text-secondary)', marginBottom: '0.8rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Info size={14} /> AI DECISION DETAIL</h4>
                               <div style={{ background: 'var(--bg-tertiary)', padding: '1.2rem', borderRadius: 'var(--radius-md)' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.8rem' }}>
                                   <span style={{ color: 'var(--text-secondary)' }}>Confidence Score:</span>
@@ -392,59 +427,64 @@ function SingleIntake() {
                                 </div>
                                 {ev.seriousness_evidence && (
                                   <div style={{ marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid var(--glass-border)', fontSize: '0.9rem' }}>
-                                    <span style={{ color: 'var(--text-secondary)' }}>Trigger Evidence:</span><br/>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Trigger Evidence:</span><br />
                                     <em style={{ color: 'var(--accent-primary)', display: 'inline-block', marginTop: '0.4rem' }}>"{ev.seriousness_evidence}"</em>
                                   </div>
                                 )}
                               </div>
                             </div>
-                            
+
                             {/* HITL Inline Review */}
                             <div>
                               {ev.review_status === "Human Review" && !validated ? (
                                 <div>
-                                  <h4 style={{ color: 'var(--warning)', marginBottom: '0.8rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><AlertTriangle size={14}/> REVIEW REQUIRED</h4>
+                                  <h4 style={{ color: 'var(--warning)', marginBottom: '0.8rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><AlertTriangle size={14} /> REVIEW REQUIRED</h4>
                                   <div style={{ background: 'var(--bg-tertiary)', padding: '1.2rem', borderRadius: 'var(--radius-md)' }}>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
                                       {ev.top_candidates?.map((cand, idx) => (
                                         <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                                          <input 
-                                            type="radio" 
-                                            name={"review_"} 
+                                          <input
+                                            type="radio"
+                                            name={"review_"}
                                             checked={corrections[i]?.id === cand.id || (!corrections[i] && idx === 0)}
                                             onChange={() => handleCorrection(i, cand.id, cand.pt)}
                                           />
-                                          {cand.pt} (ID: {cand.id}) - Score: {cand.score.toFixed(3)}
+                                          <span style={{color: 'var(--text-secondary)'}}>[{idx + 1}]</span> {cand.pt} (ID: {cand.id}) - Score: {cand.score.toFixed(3)}
                                         </label>
                                       ))}
                                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                                        <input 
-                                          type="radio" 
-                                          name={"review_"} 
+                                        <input
+                                          type="radio"
+                                          name={"review_"}
                                           checked={corrections[i]?.id === "REJECT" || (corrections[i] && !ev.top_candidates.find(c => c.id === corrections[i].id))}
                                           onChange={() => handleCorrection(i, manualInputs[i]?.id || "REJECT", manualInputs[i]?.pt || "Reject / Other")}
                                         />
-                                        Reject / Manual Input
+                                        <span style={{color: 'var(--text-secondary)'}}>[4]</span> Reject / Manual Input
                                       </label>
-                                      
+
                                       {(corrections[i]?.id === "REJECT" || (corrections[i] && !ev.top_candidates.find(c => c.id === corrections[i].id))) && (
                                         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', marginLeft: '1.5rem' }}>
-                                          <input 
-                                            type="text" 
-                                            style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--glass-border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', flex: 1 }} 
-                                            placeholder="Enter MedDRA Preferred Term (PT)..." 
+                                          <input
+                                            type="text"
+                                            style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--glass-border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', flex: 1 }}
+                                            placeholder="Enter MedDRA Preferred Term (PT)..."
                                             value={manualInputs[i]?.pt || ''}
                                             onChange={(e) => handleManualInputChange(i, 'pt', e.target.value)}
                                           />
-                                          <input 
-                                            type="text" 
-                                            style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--glass-border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', width: '150px' }} 
-                                            placeholder="MedDRA ID" 
+                                          <input
+                                            type="text"
+                                            style={{ padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--glass-border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', width: '150px' }}
+                                            placeholder="MedDRA ID"
                                             value={manualInputs[i]?.id || ''}
                                             onChange={(e) => handleManualInputChange(i, 'id', e.target.value)}
                                           />
                                         </div>
                                       )}
+                                      <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '1rem' }}>
+                                        <span><kbd>Enter</kbd> to save</span>
+                                        <span><kbd>Esc</kbd> to close</span>
+                                        <span><kbd>↑</kbd> <kbd>↓</kbd> to navigate</span>
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
@@ -488,20 +528,20 @@ function SingleIntake() {
                 <li><CheckCircle size={16} style={{ color: 'var(--success)', verticalAlign: 'middle', marginRight: '8px' }} /> Seriousness assessed</li>
                 {reviewEvents.length > 0 && (
                   <li>
-                    {Object.keys(corrections).length === reviewEvents.length ? 
-                      <CheckCircle size={16} style={{ color: 'var(--success)', verticalAlign: 'middle', marginRight: '8px' }} /> : 
-                      <span style={{ display: 'inline-block', width: '16px', height: '16px', border: '2px solid var(--warning)', borderRadius: '50%', verticalAlign: 'middle', marginRight: '8px' }}></span>} 
+                    {Object.keys(corrections).length === reviewEvents.length ?
+                      <CheckCircle size={16} style={{ color: 'var(--success)', verticalAlign: 'middle', marginRight: '8px' }} /> :
+                      <span style={{ display: 'inline-block', width: '16px', height: '16px', border: '2px solid var(--warning)', borderRadius: '50%', verticalAlign: 'middle', marginRight: '8px' }}></span>}
                     Reviewer confirmation required
                   </li>
                 )}
               </ul>
-              
+
               {result.events.length === 0 && (
-                 <p style={{ color: 'var(--warning)', fontSize: '0.9rem', marginBottom: '1rem' }}>Cannot validate case: No adverse events were identified.</p>
+                <p style={{ color: 'var(--warning)', fontSize: '0.9rem', marginBottom: '1rem' }}>Cannot validate case: No adverse events were identified.</p>
               )}
-              
-              <button 
-                className="btn btn-primary" 
+
+              <button
+                className="btn btn-primary"
                 disabled={result.events.length === 0 || (reviewEvents.length > 0 && Object.keys(corrections).length < reviewEvents.length)}
                 onClick={() => setValidated(true)}
               >
@@ -546,28 +586,73 @@ function SingleIntake() {
             </div>
           )}
 
-          {/* Raw JSON View */}
-          <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem' }}>
-            <button 
-              className="btn btn-secondary" 
-              onClick={() => setShowJson(!showJson)}
+          {/* Technical / Debug View */}
+          <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '1.5rem', marginBottom: '2rem' }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowTechView(!showTechView)}
               style={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}
             >
-              <span>View Raw E2B(R3)-Style JSON</span>
-              <span>{showJson ? '?' : '?'}</span>
+              <span>Technical Details</span>
+              <span>{showTechView ? '▼' : '▶'}</span>
             </button>
-            {showJson && (
-              <pre style={{ 
-                background: '#0d0d12', 
-                padding: '1rem', 
-                borderRadius: 'var(--radius-md)', 
-                marginTop: '1rem',
-                overflowX: 'auto',
-                fontSize: '0.85rem',
-                color: '#a5b4fc'
-              }}>
-                {JSON.stringify(result, null, 2)}
-              </pre>
+            
+            {showTechView && (
+              <div style={{ marginTop: '1rem', background: 'var(--bg-tertiary)', padding: '1.5rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--glass-border)' }}>
+                {result.pipeline_timings && (
+                  <div style={{ marginBottom: '1.5rem' }}>
+                    <h4 style={{ color: 'var(--text-secondary)', marginBottom: '0.5rem', textTransform: 'uppercase', fontSize: '0.85rem' }}>PROCESSING TIME</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem 3rem', fontSize: '0.9rem', background: 'var(--bg-primary)', padding: '1rem', borderRadius: 'var(--radius-md)' }}>
+                      {Object.entries(result.pipeline_timings).filter(([s]) => s !== 'Total').map(([stage, time]) => (
+                        <div key={stage} style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--glass-border)', paddingBottom: '0.25rem' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{stage}</span>
+                          <span>{time} s</span>
+                        </div>
+                      ))}
+                      {result.pipeline_timings['Total'] && (
+                        <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--glass-border)', fontWeight: 'bold', fontSize: '0.95rem' }}>
+                          <span>Total</span>
+                          <span style={{ color: 'var(--accent-primary)' }}>{result.pipeline_timings['Total']} s</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <h4 style={{ color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: '0.85rem', margin: 0 }}>RAW E2B(R3)-STYLE JSON</h4>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button 
+                        className="btn btn-secondary" 
+                        style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                        onClick={() => {
+                          navigator.clipboard.writeText(JSON.stringify(result, null, 2));
+                          alert('JSON copied to clipboard');
+                        }}
+                      >Copy</button>
+                      <button 
+                        className="btn btn-secondary" 
+                        style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                        onClick={() => handleExport('json')}
+                      >Download</button>
+                    </div>
+                  </div>
+                  <pre style={{
+                    background: '#0d0d12',
+                    padding: '1rem',
+                    borderRadius: 'var(--radius-md)',
+                    overflowX: 'auto',
+                    overflowY: 'auto',
+                    maxHeight: '300px',
+                    fontSize: '0.8rem',
+                    color: '#a5b4fc',
+                    margin: 0
+                  }}>
+                    {JSON.stringify(result, null, 2)}
+                  </pre>
+                </div>
+              </div>
             )}
           </div>
 
@@ -576,3 +661,5 @@ function SingleIntake() {
     </div>
   )
 }
+
+export default SingleIntake;

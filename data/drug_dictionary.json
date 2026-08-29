@@ -2,78 +2,37 @@
   "methotrexate": {
     "canonical_name": "Methotrexate",
     "identifiers": {
-      "rxnorm": "6809",
-      "chembl": "CHEMBL345"
+      "rxnorm": "6809"
     }
   },
   "mtx": {
     "canonical_name": "Methotrexate",
     "identifiers": {
-      "rxnorm": "6809",
-      "chembl": "CHEMBL345"
-    }
-  },
-  "acetaminophen": {
-    "canonical_name": "Acetaminophen",
-    "identifiers": {
-      "rxnorm": "161",
-      "chembl": "CHEMBL112"
-    }
-  },
-  "tylenol": {
-    "canonical_name": "Acetaminophen",
-    "identifiers": {
-      "rxnorm": "161",
-      "chembl": "CHEMBL112"
-    }
-  },
-  "paracetamol": {
-    "canonical_name": "Acetaminophen",
-    "identifiers": {
-      "rxnorm": "161",
-      "chembl": "CHEMBL112"
+      "rxnorm": "6809"
     }
   },
   "aspirin": {
     "canonical_name": "Aspirin",
     "identifiers": {
-      "rxnorm": "1191",
-      "chembl": "CHEMBL25"
+      "rxnorm": "1191"
     }
   },
   "ibuprofen": {
     "canonical_name": "Ibuprofen",
     "identifiers": {
-      "rxnorm": "5640",
-      "chembl": "CHEMBL521"
+      "rxnorm": "5640"
     }
   },
-  "advil": {
-    "canonical_name": "Ibuprofen",
+  "tylenol": {
+    "canonical_name": "Acetaminophen",
     "identifiers": {
-      "rxnorm": "5640",
-      "chembl": "CHEMBL521"
+      "rxnorm": "161"
     }
   },
-  "motrin": {
-    "canonical_name": "Ibuprofen",
+  "acetaminophen": {
+    "canonical_name": "Acetaminophen",
     "identifiers": {
-      "rxnorm": "5640",
-      "chembl": "CHEMBL521"
-    }
-  },
-  "rituximab": {
-    "canonical_name": "Rituximab",
-    "identifiers": {
-      "rxnorm": "121191",
-      "chembl": "CHEMBL1201576"
-    }
-  },
-  "rituxan": {
-    "canonical_name": "Rituximab",
-    "identifiers": {
-      "rxnorm": "121191",
-      "chembl": "CHEMBL1201576"
+      "rxnorm": "161"
     }
   }
 }
