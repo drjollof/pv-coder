@@ -12,6 +12,8 @@ from src.pv.case_schema import PharmacovigilanceCase, NormalizedEvent, Extracted
 from src.pv.seriousness import SeriousnessClassifier
 import time
 from src.normalization.synonyms import SynonymNormalizer
+from src.extraction.demographics import DemographicsExtractor
+from src.extraction.drug_attributes import DrugAttributeExtractor
 class CaseBuilder:
     def __init__(self, dict_path: str, faiss_index_path: str = None):
         print("Initializing NER Pipeline...", flush=True)
@@ -33,6 +35,12 @@ class CaseBuilder:
         print("Initializing Synonym Normalizer...", flush=True)
         self.synonym_normalizer = SynonymNormalizer()
 
+        print("Initializing Demographics Extractor...", flush=True)
+        self.demographics_extractor = DemographicsExtractor()
+
+        print("Initializing Drug Attribute Extractor...", flush=True)
+        self.drug_attr_extractor = DrugAttributeExtractor()
+
         # MedDRA version is stored in the dictionary if available, otherwise default
         self.meddra_version = "27.0 (Default)" # In a real scenario, extract from dictionary metadata
 
@@ -42,6 +50,13 @@ class CaseBuilder:
         """
         timings = {}
         t0 = time.time()
+        
+        print(f"[{case_id}] Extracting demographics...", flush=True)
+        demographics_data = self.demographics_extractor.extract(narrative)
+        # Using dict unpacking if demographic data is found, otherwise None
+        from src.pv.case_schema import PatientDemographics
+        demographics = PatientDemographics(**demographics_data) if demographics_data else None
+
         print(f"[{case_id}] Extracting entities...", flush=True)
         candidates = self.ner.extract(narrative)
         t1 = time.time()
@@ -70,12 +85,16 @@ class CaseBuilder:
             suspected_drugs = []
             for d in ae.drugs:
                 norm_dict = self.drug_normalizer.normalize(d.text)
+                attrs = self.drug_attr_extractor.extract_for_drug(d.end_char, narrative)
                 suspected_drugs.append(ExtractedDrug(
                     text=d.text,
                     start_char=d.start_char,
                     end_char=d.end_char,
                     canonical_name=norm_dict.get('canonical_name') if norm_dict else None,
-                    identifiers=norm_dict.get('identifiers') if norm_dict else None
+                    identifiers=norm_dict.get('identifiers') if norm_dict else None,
+                    dose=attrs.get("dose"),
+                    frequency=attrs.get("frequency"),
+                    route=attrs.get("route")
                 ))
 
             is_serious, seriousness_reason, seriousness_evidence = self.seriousness.is_serious(ae.effect.text, narrative)
@@ -117,12 +136,16 @@ class CaseBuilder:
         extracted_drugs = []
         for d in candidates.drugs:
             norm_dict = self.drug_normalizer.normalize(d.text)
+            attrs = self.drug_attr_extractor.extract_for_drug(d.end_char, narrative)
             extracted_drugs.append(ExtractedDrug(
                 text=d.text,
                 start_char=d.start_char,
                 end_char=d.end_char,
                 canonical_name=norm_dict.get('canonical_name') if norm_dict else None,
-                identifiers=norm_dict.get('identifiers') if norm_dict else None
+                identifiers=norm_dict.get('identifiers') if norm_dict else None,
+                dose=attrs.get("dose"),
+                frequency=attrs.get("frequency"),
+                route=attrs.get("route")
             ))
 
         t4 = time.time()
@@ -138,6 +161,7 @@ class CaseBuilder:
             is_serious_case=is_serious_case,
             case_seriousness_reason=case_seriousness_reason,
             case_seriousness_evidence=case_seriousness_evidence,
+            demographics=demographics,
             pipeline_timings=timings,
             meddra_version=self.meddra_version
         )
