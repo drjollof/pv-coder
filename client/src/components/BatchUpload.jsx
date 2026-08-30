@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { AlertTriangle, CheckCircle, Download, FileText, ChevronDown, ChevronRight, Info, Search, XCircle, CircleDot } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Download, FileText, ChevronDown, ChevronRight, Info, Search, XCircle, CircleDot, Play } from 'lucide-react';
 import { Client } from "@gradio/client";
 import HighlightedText from './HighlightedText';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -19,7 +19,7 @@ function BatchUpload() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if ((e.target.tagName === 'INPUT' && e.target.type !== 'radio') || e.target.tagName === 'TEXTAREA') return;
       
       const expandedKey = Object.keys(expandedEvents).find(k => expandedEvents[k]);
       if (!expandedKey) return;
@@ -41,23 +41,34 @@ function BatchUpload() {
         return;
       }
       
-      if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
          e.preventDefault();
-         if (currentIdxInReviewable !== -1 && currentIdxInReviewable < reviewableIndices.length - 1) {
-             const nextI = reviewableIndices[currentIdxInReviewable + 1];
-             setExpandedEvents({ [`${cId}_${nextI}`]: true });
-         } else if (idx < c.events.length - 1) {
-             setExpandedEvents({ [`${cId}_${idx+1}`]: true });
-         }
-      }
-      
-      if (e.key === 'ArrowUp') {
-         e.preventDefault();
-         if (currentIdxInReviewable > 0) {
-             const prevI = reviewableIndices[currentIdxInReviewable - 1];
-             setExpandedEvents({ [`${cId}_${prevI}`]: true });
-         } else if (idx > 0) {
-             setExpandedEvents({ [`${cId}_${idx-1}`]: true });
+         if (ev.review_status === "Human Review") {
+           const optionsCount = (ev.top_candidates?.length || 0) + 1;
+           let currentIndex = 0;
+           const currentCorrection = batchCorrections[cId]?.[idx];
+           if (currentCorrection) {
+             if (currentCorrection.id === "REJECT" || (currentCorrection.id && !ev.top_candidates?.find(x => x.id === currentCorrection.id))) {
+               currentIndex = optionsCount - 1;
+             } else {
+               currentIndex = ev.top_candidates.findIndex(cand => cand.id === currentCorrection.id);
+               if (currentIndex === -1) currentIndex = 0;
+             }
+           }
+           
+           let nextIndex = currentIndex;
+           if (e.key === 'ArrowDown') {
+             nextIndex = (currentIndex + 1) % optionsCount;
+           } else {
+             nextIndex = (currentIndex - 1 + optionsCount) % optionsCount;
+           }
+
+           if (nextIndex < (ev.top_candidates?.length || 0)) {
+             const cand = ev.top_candidates[nextIndex];
+             handleBatchCorrection(cId, idx, cand.id, cand.pt);
+           } else {
+             handleBatchCorrection(cId, idx, batchManualInputs[cId]?.[idx]?.id || "REJECT", batchManualInputs[cId]?.[idx]?.pt || "Reject / Other");
+           }
          }
       }
 
@@ -71,17 +82,80 @@ function BatchUpload() {
         } else if (e.key === '4') {
           handleBatchCorrection(cId, idx, batchManualInputs[cId]?.[idx]?.id || "REJECT", batchManualInputs[cId]?.[idx]?.pt || "Reject / Other");
         } else if (e.key === 'Enter') {
-          setExpandedEvents(prev => ({...prev, [expandedKey]: false}));
-          if (currentIdxInReviewable !== -1 && currentIdxInReviewable < reviewableIndices.length - 1) {
-             const nextI = reviewableIndices[currentIdxInReviewable + 1];
-             setExpandedEvents(prev => ({...prev, [`${cId}_${nextI}`]: true}));
+          e.preventDefault();
+          if (!e.shiftKey && !batchCorrections[cId]?.[idx]) {
+            if (ev.top_candidates && ev.top_candidates[0]) {
+              handleBatchCorrection(cId, idx, ev.top_candidates[0].id, ev.top_candidates[0].pt);
+            }
+          }
+          if (e.shiftKey) {
+            let prevI = -1;
+            for (let i = idx - 1; i >= 0; i--) {
+              if (c.events[i].review_status === "Human Review") { prevI = i; break; }
+            }
+            if (prevI !== -1) {
+              setExpandedEvents({ [`${cId}_${prevI}`]: true });
+            } else {
+              const currentCaseIdx = results.findIndex(x => x.case_id === cId);
+              let foundPrev = false;
+              for (let i = currentCaseIdx - 1; i >= 0; i--) {
+                const prevCase = results[i];
+                if (prevCase.error) continue;
+                let prevReviewIdx = -1;
+                if (prevCase.events) {
+                  for (let k = prevCase.events.length - 1; k >= 0; k--) {
+                    if (prevCase.events[k].review_status === "Human Review") { prevReviewIdx = k; break; }
+                  }
+                }
+                if (prevReviewIdx !== -1) {
+                  setExpandedCaseId(prevCase.case_id);
+                  setExpandedEvents({ [`${prevCase.case_id}_${prevReviewIdx}`]: true });
+                  foundPrev = true;
+                  break;
+                }
+              }
+            }
+          } else {
+            const nextI = c.events.findIndex((evt, i) => i > idx && evt.review_status === "Human Review" && !batchCorrections[cId]?.[i]);
+            if (nextI !== -1) {
+               setExpandedEvents({ [`${cId}_${nextI}`]: true });
+            } else {
+               const currentCaseIdx = results.findIndex(x => x.case_id === cId);
+               let foundNext = false;
+               for (let i = currentCaseIdx + 1; i < results.length; i++) {
+                 const nextCase = results[i];
+                 if (nextCase.error) continue;
+                 const nextReviewIdx = nextCase.events?.findIndex((evt, k) => evt.review_status === "Human Review" && !batchCorrections[nextCase.case_id]?.[k]);
+                 if (nextReviewIdx !== undefined && nextReviewIdx !== -1) {
+                   setExpandedCaseId(nextCase.case_id);
+                   setExpandedEvents({ [`${nextCase.case_id}_${nextReviewIdx}`]: true });
+                   foundNext = true;
+                   break;
+                 }
+               }
+               if (!foundNext) {
+                 setExpandedCaseId(null);
+                 setExpandedEvents({});
+               }
+            }
           }
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [expandedEvents, results, batchManualInputs]);
+  }, [expandedEvents, results, batchManualInputs, batchCorrections]);
+
+  // Auto-scroll to newly expanded event
+  useEffect(() => {
+    const expandedKey = Object.keys(expandedEvents).find(k => expandedEvents[k]);
+    if (expandedKey) {
+      const [cId, idx] = expandedKey.split('_');
+      setTimeout(() => {
+        document.getElementById(`event-${cId}-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 150);
+    }
+  }, [expandedEvents]);
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -122,8 +196,26 @@ function BatchUpload() {
 
   const toggleEventRow = (caseId, eventIdx) => {
     const key = `${caseId}_${eventIdx}`
-    setExpandedEvents(prev => ({ ...prev, [key]: !prev[key] }))
+    setExpandedEvents(prev => {
+      if (prev[key]) return {}; // if already open, close it
+      return { [key]: true }; // open this one and close everything else
+    });
   }
+
+  const startReviewQueue = () => {
+    if (!results) return;
+    for (let i = 0; i < results.length; i++) {
+      const c = results[i];
+      if (c.error) continue;
+      const reviewIdx = c.events?.findIndex((e, k) => e.review_status === "Human Review" && !batchCorrections[c.case_id]?.[k]);
+      if (reviewIdx !== undefined && reviewIdx !== -1) {
+        setExpandedCaseId(c.case_id);
+        setExpandedEvents({ [`${c.case_id}_${reviewIdx}`]: true });
+        setFilter('Needs Review');
+        return;
+      }
+    }
+  };
 
   const handleUpload = async () => {
     if (!file) return
@@ -182,7 +274,7 @@ function BatchUpload() {
             `"${batchCorrections[caseObj.case_id]?.[idx]?.pt || event.meddra_pt}"`,
             batchCorrections[caseObj.case_id]?.[idx]?.id || event.meddra_pt_id,
             `"${event.suspected_drugs.map(d => typeof d === 'string' ? d : (d.canonical_name ? `${d.canonical_name} (${d.text})` : d.text)).join(', ')}"`,
-            event.review_status
+            batchCorrections[caseObj.case_id]?.[idx] ? "Reviewed" : event.review_status
           ])
         })
       }
@@ -203,7 +295,8 @@ function BatchUpload() {
       const newEvents = c.events?.map((ev, idx) => ({
         ...ev,
         meddra_pt: batchCorrections[c.case_id]?.[idx]?.pt || ev.meddra_pt,
-        meddra_pt_id: batchCorrections[c.case_id]?.[idx]?.id || ev.meddra_pt_id
+        meddra_pt_id: batchCorrections[c.case_id]?.[idx]?.id || ev.meddra_pt_id,
+        review_status: batchCorrections[c.case_id]?.[idx] ? "Reviewed" : ev.review_status
       })) || [];
       return { ...c, events: newEvents }
     })
@@ -231,7 +324,8 @@ function BatchUpload() {
       const newEvents = c.events?.map((ev, idx) => ({
         ...ev,
         meddra_pt: batchCorrections[c.case_id]?.[idx]?.pt || ev.meddra_pt,
-        meddra_pt_id: batchCorrections[c.case_id]?.[idx]?.id || ev.meddra_pt_id
+        meddra_pt_id: batchCorrections[c.case_id]?.[idx]?.id || ev.meddra_pt_id,
+        review_status: batchCorrections[c.case_id]?.[idx] ? "Reviewed" : ev.review_status
       })) || [];
       return { ...c, events: newEvents }
     })
@@ -266,13 +360,15 @@ function BatchUpload() {
       if (c.is_serious_case) seriousCount++;
 
       let needsReview = false;
-      c.events.forEach(e => {
+      c.events.forEach((e, idx) => {
         totalEvents++;
-        if (e.review_status === 'Auto-coded') autoCodedEvents++;
-        if (e.review_status === 'Human Review') needsReview = true;
+        const isReviewed = !!batchCorrections[c.case_id]?.[idx];
+        if (e.review_status === 'Auto-coded' || isReviewed) autoCodedEvents++;
+        if (e.review_status === 'Human Review' && !isReviewed) needsReview = true;
         if (e.confidence_score) sumConfidence += e.confidence_score;
 
-        ptCounts[e.meddra_pt] = (ptCounts[e.meddra_pt] || 0) + 1;
+        const actualPt = batchCorrections[c.case_id]?.[idx]?.pt || e.meddra_pt;
+        ptCounts[actualPt] = (ptCounts[actualPt] || 0) + 1;
       });
       if (needsReview) reviewRequiredCount++;
     });
@@ -353,7 +449,14 @@ function BatchUpload() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
             <h2>Batch Dashboard</h2>
-            <button className="btn btn-secondary" onClick={() => setResults(null)}>New Batch Upload</button>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              {reviewRequiredCount > 0 && (
+                <button className="btn btn-primary" onClick={startReviewQueue} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Play size={16} /> Start Review Queue ({reviewRequiredCount})
+                </button>
+              )}
+              <button className="btn btn-secondary" onClick={() => setResults(null)}>New Batch Upload</button>
+            </div>
           </div>
 
           {/* KPIs */}
@@ -533,9 +636,9 @@ function BatchUpload() {
                       <td>{c.error ? '-' : `${c.events?.length || 0} event(s)`}</td>
                       <td>
                         {c.error ? <span style={{ color: 'var(--text-secondary)' }}><XCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Processing Error</span> : (
-                          c.events?.some(e => e.review_status === 'Human Review') ?
+                          c.events?.some((e, k) => e.review_status === 'Human Review' && !batchCorrections[c.case_id]?.[k]) ?
                             <span style={{ color: 'var(--warning)' }}><AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Needs Review</span> :
-                            <span style={{ color: 'var(--success)' }}><CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Auto-coded</span>
+                            <span style={{ color: 'var(--success)' }}><CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> {c.events?.some(e => e.review_status === 'Human Review') ? 'Reviewed' : 'Auto-coded'}</span>
                         )}
                       </td>
                     </tr>
@@ -575,7 +678,7 @@ function BatchUpload() {
                                 <tbody>
                                   {c.events?.map((ev, idx) => (
                                     <React.Fragment key={idx}>
-                                      <tr onClick={() => toggleEventRow(c.case_id, idx)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--glass-border)', background: expandedEvents[`${c.case_id}_${idx}`] ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                                      <tr id={`event-${c.case_id}-${idx}`} onClick={() => toggleEventRow(c.case_id, idx)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--glass-border)', background: expandedEvents[`${c.case_id}_${idx}`] ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
                                         <td style={{ padding: '1rem 0.5rem' }}>
                                           {expandedEvents[`${c.case_id}_${idx}`] ? <ChevronDown size={14} style={{ marginRight: '8px', verticalAlign: 'middle' }} /> : <ChevronRight size={14} style={{ marginRight: '8px', verticalAlign: 'middle' }} />}
                                         </td>
@@ -584,9 +687,11 @@ function BatchUpload() {
                                         <td>{batchCorrections[c.case_id]?.[idx]?.id || ev.meddra_pt_id}</td>
                                         <td>{ev.suspected_drugs.map(d => typeof d === 'string' ? d : (d.canonical_name ? `${d.canonical_name} (${d.text})` : d.text)).join(', ') || 'None'}</td>
                                         <td>
-                                          {ev.review_status === 'Auto-coded' ?
-                                            <span style={{ color: 'var(--success)' }}><CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Auto-coded</span> :
-                                            <span style={{ color: 'var(--warning)' }}><AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Review</span>}
+                                          {batchCorrections[c.case_id]?.[idx] ?
+                                            <span style={{ color: 'var(--success)' }}><CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Reviewed</span> :
+                                            ev.review_status === 'Auto-coded' ?
+                                              <span style={{ color: 'var(--success)' }}><CheckCircle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Auto-coded</span> :
+                                              <span style={{ color: 'var(--warning)' }}><AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> Review</span>}
                                         </td>
                                       </tr>
 
@@ -671,11 +776,12 @@ function BatchUpload() {
                                                             </button>
                                                           </div>
                                                         )}
-                                                        <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '1rem' }}>
-                                                          <span><kbd>Enter</kbd> to save</span>
-                                                          <span><kbd>Esc</kbd> to close</span>
-                                                          <span><kbd>↑</kbd> <kbd>↓</kbd> to navigate</span>
-                                                        </div>
+                                                          <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                                                            <span><kbd>Enter</kbd> to save</span>
+                                                            <span><kbd>Shift</kbd>+<kbd>Enter</kbd> to go back</span>
+                                                            <span><kbd>Esc</kbd> to close</span>
+                                                            <span><kbd>↑</kbd> <kbd>↓</kbd> to change option</span>
+                                                          </div>
                                                       </div>
                                                     </div>
                                                   </div>
