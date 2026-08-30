@@ -44,9 +44,10 @@ class CaseBuilder:
         # MedDRA version is stored in the dictionary if available, otherwise default
         self.meddra_version = "27.0 (Default)" # In a real scenario, extract from dictionary metadata
 
-    def process(self, narrative: str, case_id: str) -> PharmacovigilanceCase:
+    def process(self, narrative: str, case_id: str, previous_case_dict: Optional[dict] = None) -> PharmacovigilanceCase:
         """
         Processes a raw clinical narrative into a structured PharmacovigilanceCase.
+        If previous_case_dict is provided, processes the narrative as a follow-up and merges it.
         """
         timings = {}
         t0 = time.time()
@@ -67,6 +68,22 @@ class CaseBuilder:
         t2 = time.time()
         timings["Context"] = round(t2 - t1, 3)
         
+        # Handle Follow-up offset logic
+        prev_case = None
+        offset = 0
+        current_version = 1
+        if previous_case_dict:
+            prev_case = PharmacovigilanceCase(**previous_case_dict)
+            offset = len(prev_case.narrative) + len("\n\n--- FOLLOW-UP ---\n\n")
+            current_version = prev_case.case_version + 1
+            
+            # Shift excluded findings
+            for exc in excluded_findings:
+                if 'start_char' in exc and exc['start_char'] is not None:
+                    exc['start_char'] += offset
+                if 'end_char' in exc and exc['end_char'] is not None:
+                    exc['end_char'] += offset
+
         adverse_events = [e for e in events if e.event_type == EventType.ADVERSE_EVENT]
 
         normalized_events = []
@@ -87,14 +104,15 @@ class CaseBuilder:
                 norm_dict = self.drug_normalizer.normalize(d.text)
                 attrs = self.drug_attr_extractor.extract_for_drug(d.end_char, narrative)
                 suspected_drugs.append(ExtractedDrug(
-                    text=d.text,
-                    start_char=d.start_char,
-                    end_char=d.end_char,
+                text=d.text,
+                    start_char=d.start_char + offset if d.start_char is not None else None,
+                    end_char=d.end_char + offset if d.end_char is not None else None,
                     canonical_name=norm_dict.get('canonical_name') if norm_dict else None,
                     identifiers=norm_dict.get('identifiers') if norm_dict else None,
                     dose=attrs.get("dose"),
                     frequency=attrs.get("frequency"),
-                    route=attrs.get("route")
+                    route=attrs.get("route"),
+                    source_version=current_version
                 ))
 
             is_serious, seriousness_reason, seriousness_evidence = self.seriousness.is_serious(ae.effect.text, narrative)
@@ -104,8 +122,8 @@ class CaseBuilder:
 
             normalized_events.append(NormalizedEvent(
                 effect_text=ae.effect.text,
-                start_char=ae.effect.start_char,
-                end_char=ae.effect.end_char,
+                start_char=ae.effect.start_char + offset if ae.effect.start_char is not None else None,
+                end_char=ae.effect.end_char + offset if ae.effect.end_char is not None else None,
                 meddra_pt=meddra_pt,
                 meddra_pt_id=meddra_pt_id,
                 confidence_score=conf,
@@ -117,19 +135,10 @@ class CaseBuilder:
                 seriousness_evidence=seriousness_evidence,
                 is_speculated=ae.is_speculated,
                 causality=causality,
-                outcome=outcome
+                outcome=outcome,
+                source_version=current_version
             ))
 
-        is_serious_case = False
-        case_seriousness_reason = None
-        case_seriousness_evidence = None
-        for e in normalized_events:
-            if e.is_serious:
-                is_serious_case = True
-                case_seriousness_reason = e.seriousness_reason
-                case_seriousness_evidence = e.seriousness_evidence
-                break
-            
         t3 = time.time()
         timings["MedDRA coding"] = round(t3 - t2, 3)
 
@@ -139,14 +148,36 @@ class CaseBuilder:
             attrs = self.drug_attr_extractor.extract_for_drug(d.end_char, narrative)
             extracted_drugs.append(ExtractedDrug(
                 text=d.text,
-                start_char=d.start_char,
-                end_char=d.end_char,
+                start_char=d.start_char + offset if d.start_char is not None else None,
+                end_char=d.end_char + offset if d.end_char is not None else None,
                 canonical_name=norm_dict.get('canonical_name') if norm_dict else None,
                 identifiers=norm_dict.get('identifiers') if norm_dict else None,
                 dose=attrs.get("dose"),
                 frequency=attrs.get("frequency"),
-                route=attrs.get("route")
+                route=attrs.get("route"),
+                source_version=current_version
             ))
+
+        # Merge with previous case if provided
+        final_narrative = narrative
+        if prev_case:
+            final_narrative = prev_case.narrative + "\n\n--- FOLLOW-UP ---\n\n" + narrative
+            normalized_events = prev_case.events + normalized_events
+            extracted_drugs = prev_case.extracted_drugs + extracted_drugs
+            excluded_findings = prev_case.excluded_findings + excluded_findings
+            if prev_case.demographics and not demographics:
+                demographics = prev_case.demographics
+
+        # Re-evaluate seriousness for the whole merged case
+        is_serious_case = False
+        case_seriousness_reason = None
+        case_seriousness_evidence = None
+        for e in normalized_events:
+            if e.is_serious:
+                is_serious_case = True
+                case_seriousness_reason = e.seriousness_reason
+                case_seriousness_evidence = e.seriousness_evidence
+                break
 
         t4 = time.time()
         timings["Case building"] = round(t4 - t3, 3)
@@ -154,7 +185,7 @@ class CaseBuilder:
 
         return PharmacovigilanceCase(
             case_id=case_id,
-            narrative=narrative,
+            narrative=final_narrative,
             events=normalized_events,
             extracted_drugs=extracted_drugs,
             excluded_findings=excluded_findings,
@@ -163,5 +194,6 @@ class CaseBuilder:
             case_seriousness_evidence=case_seriousness_evidence,
             demographics=demographics,
             pipeline_timings=timings,
-            meddra_version=self.meddra_version
+            meddra_version=self.meddra_version,
+            case_version=current_version
         )

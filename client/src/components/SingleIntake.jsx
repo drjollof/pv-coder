@@ -25,6 +25,7 @@ function SingleIntake() {
   const [showAddEvent, setShowAddEvent] = useState(false);
   const [newEvent, setNewEvent] = useState({ effect: '', pt: '', id: '' });
   const [examples, setExamples] = useState([]);
+  const [previousCaseJson, setPreviousCaseJson] = useState(null);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -114,6 +115,7 @@ function SingleIntake() {
     setValidated(false);
     setExpandedRows({});
     setError('');
+    setPreviousCaseJson(null);
   };
 
   const handleAnalyze = async () => {
@@ -131,7 +133,8 @@ function SingleIntake() {
       const client = await Client.connect(window.API_URL, { hf_token: window.HF_TOKEN || undefined });
       const res = await client.predict("/analyze", [
         narrative,
-        'WEB-' + Math.floor(Math.random() * 1000)
+        'WEB-' + Math.floor(Math.random() * 1000),
+        previousCaseJson || ''
       ]);
       const data = JSON.parse(res.data[0]);
       if (data.error) {
@@ -226,7 +229,7 @@ function SingleIntake() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <h2 style={{ fontSize: '1.2rem', color: 'var(--text-secondary)' }}>
-          {result ? "Case " + result.case_id : 'New Case'}
+          {result ? `Case ${result.case_id} (v${result.case_version || 1})` : 'New Case'}
         </h2>
         <button className="btn btn-secondary" onClick={resetCase}>New Case / Reset</button>
       </div>
@@ -250,7 +253,9 @@ function SingleIntake() {
       {!result && !loading && (
         <IntakeForm 
           narrative={narrative} 
-          setNarrative={setNarrative} 
+          setNarrative={setNarrative}
+          previousCaseJson={previousCaseJson}
+          setPreviousCaseJson={setPreviousCaseJson}
           handleAnalyze={handleAnalyze} 
           examples={examples} 
           loading={loading} 
@@ -351,6 +356,10 @@ function SingleIntake() {
             filteredEvents={getFilteredResult().events}
             reviewEventsCount={reviewEvents.length}
             correctionsCount={Object.keys(corrections).length}
+            demographics={result.demographics}
+            isSeriousCase={result.is_serious_case}
+            caseSeriousnessReason={result.case_seriousness_reason}
+            extractedDrugs={result.extracted_drugs}
           />
 
         </div>

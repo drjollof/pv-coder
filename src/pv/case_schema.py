@@ -15,6 +15,7 @@ class ExtractedDrug(BaseModel):
     dose: Optional[str] = Field(None, description="Extracted dose (e.g. 50mg)")
     frequency: Optional[str] = Field(None, description="Extracted frequency (e.g. BID, daily)")
     route: Optional[str] = Field(None, description="Extracted route (e.g. PO, IV)")
+    source_version: int = Field(default=1, description="The case version this drug was extracted in.")
 
 class NormalizedEvent(BaseModel):
     effect_text: str = Field(..., description="The raw text span of the extracted adverse event.")
@@ -32,6 +33,7 @@ class NormalizedEvent(BaseModel):
     is_speculated: bool = Field(..., description="Whether the event was mentioned hypothetically/speculatively.")
     causality: Optional[str] = Field(None, description="Explicit investigator causality assessment.")
     outcome: Optional[str] = Field(None, description="Explicit patient outcome for this event.")
+    source_version: int = Field(default=1, description="The case version this event was extracted in.")
 
 class PharmacovigilanceCase(BaseModel):
     case_id: str = Field(..., description="Unique identifier for the case.")
@@ -45,3 +47,4 @@ class PharmacovigilanceCase(BaseModel):
     demographics: Optional[PatientDemographics] = Field(None, description="Extracted patient demographics.")
     pipeline_timings: Optional[Dict[str, float]] = Field(None, description="Execution time for each pipeline stage.")
     meddra_version: Optional[str] = Field(None, description="The loaded MedDRA version.")
+    case_version: int = Field(default=1, description="The version of the case.")

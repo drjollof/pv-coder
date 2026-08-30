@@ -27,10 +27,15 @@ def get_builder():
     return _builder
 
 @spaces.GPU
-def analyze_api(narrative: str, case_id: str) -> str:
+def analyze_api(narrative: str, case_id: str, previous_case_json: str = None) -> str:
     try:
         builder = get_builder()
-        case = builder.process(narrative=narrative, case_id=case_id)
+        
+        prev_case_dict = None
+        if previous_case_json and previous_case_json.strip():
+            prev_case_dict = json.loads(previous_case_json)
+            
+        case = builder.process(narrative=narrative, case_id=case_id, previous_case_dict=prev_case_dict)
         return json.dumps(case.model_dump())
     except Exception as e:
         import traceback
@@ -130,8 +135,9 @@ with gr.Blocks(title="PV-Coder Engine API") as demo:
     with gr.Row(visible=False):
         i_narrative = gr.Textbox()
         i_case_id = gr.Textbox()
+        i_prev_case = gr.Textbox()
         o_case = gr.Textbox()
-        gr.Button("Analyze").click(fn=analyze_api, inputs=[i_narrative, i_case_id], outputs=o_case, api_name="analyze")
+        gr.Button("Analyze").click(fn=analyze_api, inputs=[i_narrative, i_case_id, i_prev_case], outputs=o_case, api_name="analyze")
 
         i_case_for_pdf = gr.Textbox()
         o_pdf_b64 = gr.Textbox()
