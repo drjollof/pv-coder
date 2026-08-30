@@ -47,7 +47,7 @@ def generate_pdf_report(case: PharmacovigilanceCase) -> bytes:
         
         safe_effect = event.effect_text.encode('latin-1', 'replace').decode('latin-1')
         safe_pt = event.meddra_pt.encode('latin-1', 'replace').decode('latin-1')
-        drugs = ", ".join(event.suspected_drugs) if event.suspected_drugs else "None"
+        drugs = ", ".join([d.canonical_name or d.text for d in event.suspected_drugs]) if event.suspected_drugs else "None"
         
         pdf.set_font("Arial", 'B', 11)
         pdf.set_text_color(79, 70, 229) # indigo-600

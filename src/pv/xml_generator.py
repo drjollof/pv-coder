@@ -24,7 +24,7 @@ def generate_e2b_xml(case: PharmacovigilanceCase) -> str:
         if event.suspected_drugs:
             for drug in event.suspected_drugs:
                 drug_elem = ET.SubElement(patient, "drug")
-                ET.SubElement(drug_elem, "medicinalproduct").text = drug
+                ET.SubElement(drug_elem, "medicinalproduct").text = drug.canonical_name or drug.text
                 
     xml_str = ET.tostring(root, encoding='utf-8', method='xml').decode()
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_str
