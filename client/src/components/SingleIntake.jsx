@@ -497,7 +497,7 @@ function SingleIntake() {
                                         <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                                           <input
                                             type="radio"
-                                            name={"review_"}
+                                            name={"review_" + i}
                                             checked={corrections[i]?.id === cand.id || (!corrections[i] && idx === 0)}
                                             onChange={() => handleCorrection(i, cand.id, cand.pt)}
                                           />
@@ -507,7 +507,7 @@ function SingleIntake() {
                                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                                         <input
                                           type="radio"
-                                          name={"review_"}
+                                          name={"review_" + i}
                                           checked={corrections[i]?.id === "REJECT" || (corrections[i] && !ev.top_candidates.find(c => c.id === corrections[i].id) && corrections[i]?.id !== "EXCLUDED")}
                                           onChange={() => handleCorrection(i, manualInputs[i]?.id || "REJECT", manualInputs[i]?.pt || "Reject / Other")}
                                         />
@@ -516,7 +516,7 @@ function SingleIntake() {
                                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                                         <input
                                           type="radio"
-                                          name={"review_"}
+                                          name={"review_" + i}
                                           checked={corrections[i]?.id === "EXCLUDED"}
                                           onChange={() => handleCorrection(i, "EXCLUDED", "Excluded from case")}
                                         />
