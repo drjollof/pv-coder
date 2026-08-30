@@ -102,42 +102,44 @@ function App() {
 
   return (
     <div>
-      <header style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <header className="mobile-stack" style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1>PV-Coder</h1>
           <p>NLP-assisted Pharmacovigilance Case Intake System.</p>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '0.85rem' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <div className="header-status-container">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <span className="status-pill">
               <CircleDot size={12} color={systemStatus.engineReady ? "#4ade80" : "#f87171"} />
               {systemStatus.engineReady ? "NLP Engine Ready" : "NLP Engine Offline"}
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#94a3b8' }}>
+            <span className="status-pill" style={{ color: 'var(--text-secondary)' }}>
               <Server size={12} />
               {systemStatus.runtime}
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#94a3b8' }}>
+            <span className="status-pill" style={{ color: 'var(--text-secondary)' }}>
               <Database size={12} />
               MedDRA {systemStatus.meddraVersion}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>
-            <label style={{ color: 'var(--text-secondary)' }}>HF Token (Optional):</label>
+            <label style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>HF Token (Optional):</label>
             <input 
               type="password" 
               placeholder="hf_..."
               value={hfToken}
               onChange={handleTokenChange}
               title="Authenticate Hugging Face to bypass ZeroGPU limits"
-              style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--glass-border)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', width: '160px', fontSize: '0.8rem' }}
+              style={{ padding: '6px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--glass-border)', background: 'rgba(0,0,0,0.2)', color: 'var(--text-primary)', width: '180px', fontSize: '0.8rem', outline: 'none', transition: 'border-color 0.2s' }}
+              onFocus={(e) => e.target.style.borderColor = 'var(--accent-primary)'}
+              onBlur={(e) => e.target.style.borderColor = 'var(--glass-border)'}
             />
           </div>
         </div>
       </header>
 
       <div className="glass-panel">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', marginBottom: '2rem' }}>
+        <div className="mobile-stack" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', marginBottom: '2rem' }}>
           <div className="tabs" style={{ borderBottom: 'none', marginBottom: 0 }}>
             <button
               className={`tab ${activeTab === 'single' ? 'active' : ''}`}

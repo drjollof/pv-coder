@@ -354,3 +354,76 @@ tr:hover td {
 .file-drop-area input[type="file"] {
   display: none;
 }
+
+/* Header Status Pills */
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
+  padding: 6px 12px;
+  border-radius: var(--radius-xl);
+  font-size: 0.8rem;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.header-status-container {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1.2rem;
+  justify-content: center;
+}
+
+/* Mobile Optimizations */
+@media (max-width: 768px) {
+  #root {
+    padding: 1rem;
+  }
+  
+  h1 {
+    font-size: 1.8rem;
+  }
+  
+  h2 {
+    font-size: 1.3rem;
+  }
+  
+  .tabs {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .tab {
+    flex-grow: 1;
+    text-align: center;
+    padding: 0.5rem;
+    font-size: 0.9rem;
+  }
+  
+  .mobile-stack {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 1rem !important;
+  }
+  
+  .mobile-grid-1 {
+    grid-template-columns: 1fr !important;
+  }
+  
+  .mobile-grid-2 {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  
+  .header-status-container {
+    align-items: flex-start !important;
+  }
+  
+  .btn-mobile-full {
+    width: 100% !important;
+    margin-bottom: 0.5rem;
+    justify-content: center;
+  }
+}

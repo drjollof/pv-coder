@@ -13,7 +13,7 @@ function IntakeForm({ narrative, setNarrative, previousCaseJson, setPreviousCase
 
   return (
     <div style={{ marginBottom: '1.5rem', animation: 'slideIn 0.3s ease-out' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+      <div className="mobile-stack" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
         <h3>Clinical Narrative</h3>
         {examples && examples.length > 0 && (
           <select
@@ -41,9 +41,9 @@ function IntakeForm({ narrative, setNarrative, previousCaseJson, setPreviousCase
         <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
           Upload a previously exported Case JSON. The new narrative above will be processed and merged with the existing case to create a new version.
         </p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div className="mobile-stack" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <label 
-            className="btn btn-secondary" 
+            className="btn btn-secondary btn-mobile-full" 
             style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
           >
             <input 

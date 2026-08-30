@@ -234,7 +234,7 @@ function SingleIntake() {
         <button className="btn btn-secondary" onClick={resetCase}>New Case / Reset</button>
       </div>
 
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginBottom: '2rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
         {workflowSteps.map((step, idx) => (
           <span key={step} style={{
             color: idx === currentStep ? 'var(--accent-primary)' : (idx < currentStep ? 'var(--success)' : 'inherit'),
