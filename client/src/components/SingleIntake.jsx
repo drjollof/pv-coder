@@ -84,7 +84,7 @@ function SingleIntake() {
   useEffect(() => {
     async function loadExamples() {
       try {
-        const client = await Client.connect(window.API_URL)
+        const client = await Client.connect(window.API_URL, { hf_token: window.HF_TOKEN || undefined })
         const res = await client.predict("/examples")
         setExamples(JSON.parse(res.data[0]))
       } catch (err) {
@@ -120,7 +120,7 @@ function SingleIntake() {
     setShowJson(false)
 
     try {
-      const client = await Client.connect(window.API_URL)
+      const client = await Client.connect(window.API_URL, { hf_token: window.HF_TOKEN || undefined })
       const res = await client.predict("/analyze", [
         narrative,
         'WEB-' + Math.floor(Math.random() * 1000)
@@ -177,7 +177,7 @@ function SingleIntake() {
       return
     }
     try {
-      const client = await Client.connect(window.API_URL)
+      const client = await Client.connect(window.API_URL, { hf_token: window.HF_TOKEN || undefined })
       const endpoint = format === 'pdf' ? '/export_pdf' : '/export_xml'
       const res = await client.predict(endpoint, [JSON.stringify(exportResult)])
       const payload = res.data[0]

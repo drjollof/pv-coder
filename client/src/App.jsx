@@ -23,6 +23,18 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [caseHistory, setCaseHistory] = useState([]);
   const [copiedId, setCopiedId] = useState(null);
+  
+  const [hfToken, setHfToken] = useState(() => localStorage.getItem('hf_token') || '');
+
+  useEffect(() => {
+    window.HF_TOKEN = hfToken;
+  }, [hfToken]);
+
+  const handleTokenChange = (e) => {
+    const val = e.target.value;
+    setHfToken(val);
+    localStorage.setItem('hf_token', val);
+  };
 
   useEffect(() => {
     // Load history
@@ -38,7 +50,7 @@ function App() {
     // Poll status
     const fetchStatus = async () => {
       try {
-        const client = await Client.connect(window.API_URL);
+        const client = await Client.connect(window.API_URL, { hf_token: window.HF_TOKEN || undefined });
         const res = await client.predict("/status", []);
         if (res && res.data) {
           const parsed = JSON.parse(res.data[0]);
@@ -109,6 +121,17 @@ function App() {
               <Database size={12} />
               MedDRA {systemStatus.meddraVersion}
             </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>
+            <label style={{ color: 'var(--text-secondary)' }}>HF Token (Optional):</label>
+            <input 
+              type="password" 
+              placeholder="hf_..."
+              value={hfToken}
+              onChange={handleTokenChange}
+              title="Authenticate Hugging Face to bypass ZeroGPU limits"
+              style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--glass-border)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', width: '160px', fontSize: '0.8rem' }}
+            />
           </div>
         </div>
       </header>

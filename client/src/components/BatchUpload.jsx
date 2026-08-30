@@ -136,7 +136,7 @@ function BatchUpload() {
       bytes.forEach(b => binary += String.fromCharCode(b))
       const csvB64 = btoa(binary)
 
-      const client = await Client.connect(window.API_URL)
+      const client = await Client.connect(window.API_URL, { hf_token: window.HF_TOKEN || undefined })
       const job = client.submit("/batch", [csvB64])
 
       for await (const msg of job) {
@@ -208,7 +208,7 @@ function BatchUpload() {
       return { ...c, events: newEvents }
     })
     try {
-      const client = await Client.connect(window.API_URL)
+      const client = await Client.connect(window.API_URL, { hf_token: window.HF_TOKEN || undefined })
       const res = await client.predict("/batch_xml_zip", [JSON.stringify(validResults)])
       const zipB64 = res.data[0]
       const bytes = Uint8Array.from(atob(zipB64), c => c.charCodeAt(0))
