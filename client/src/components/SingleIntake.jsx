@@ -3,7 +3,6 @@ import { Circle, CircleDot, CheckCircle } from 'lucide-react';
 import { Client } from "@gradio/client";
 import HighlightedText from './HighlightedText';
 
-import { getDrugBadgeStyle } from '../utils/colors';
 import CaseOverviewPanel from './CaseOverviewPanel';
 import DemographicsPanel from './DemographicsPanel';
 import MedicationsPanel from './MedicationsPanel';
