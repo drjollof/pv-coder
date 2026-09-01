@@ -180,7 +180,7 @@ function SingleIntake() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = "" + exportResult.case_id + "_report.json";
+      a.download = `PV-Coder_${exportResult.case_id}_Report.json`;
       document.body.appendChild(a);
       a.click();
       URL.revokeObjectURL(url);
@@ -203,7 +203,7 @@ function SingleIntake() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = "" + result.case_id + "_report." + format;
+      a.download = `PV-Coder_${result.case_id}_Report.${format}`;
       document.body.appendChild(a);
       a.click();
       URL.revokeObjectURL(url);
@@ -361,6 +361,18 @@ function SingleIntake() {
             caseSeriousnessReason={result.case_seriousness_reason}
             extractedDrugs={result.extracted_drugs}
           />
+
+          {/* Technical / Debug View */}
+          <details style={{ marginTop: '2rem' }}>
+            <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.5rem', userSelect: 'none' }}>
+              Show Technical / Debug View
+            </summary>
+            <div style={{ padding: '1rem', background: 'var(--bg-tertiary)', borderRadius: '8px', overflowX: 'auto', fontFamily: 'monospace', fontSize: '0.8rem', border: '1px solid var(--glass-border)', color: 'var(--text-primary)' }}>
+              <pre style={{ margin: 0 }}>
+                {JSON.stringify(getFilteredResult(), null, 2)}
+              </pre>
+            </div>
+          </details>
 
         </div>
       )}

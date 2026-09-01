@@ -1,85 +1,279 @@
 from fpdf import FPDF
 from src.pv.case_schema import PharmacovigilanceCase
+from datetime import datetime
+
+# Colors
+C_CHARCOAL = (31, 41, 55)
+C_SLATE = (100, 116, 139)
+C_BORDER = (217, 222, 231)
+C_SURFACE = (248, 250, 252)
+C_PURPLE = (109, 40, 217)
+C_SUCCESS = (5, 150, 105)
+C_WARNING = (217, 119, 6)
+C_ERROR = (185, 28, 28)
+
+C_BG_SUCCESS = (209, 250, 229)
+C_BG_WARNING = (254, 243, 199)
+C_BG_ERROR = (254, 226, 226)
+
+class PDFReportGenerator(FPDF):
+    def __init__(self, case: PharmacovigilanceCase):
+        super().__init__(orientation='P', unit='mm', format='A4')
+        self.case = case
+        self.set_auto_page_break(auto=True, margin=15)
+        self.set_margins(left=15, top=15, right=15)
+        self.add_page()
+
+    def header(self):
+        # Left side
+        self.set_font("Arial", 'B', 9)
+        self.set_text_color(*C_PURPLE)
+        self.cell(90, 5, "PV-CODER", ln=0, align='L')
+        
+        # Right side
+        self.set_text_color(*C_CHARCOAL)
+        self.cell(90, 5, str(self.case.case_id), ln=1, align='R')
+        
+        # Second line
+        if self.page_no() == 1:
+            self.set_font("Arial", 'B', 18)
+            self.set_text_color(*C_CHARCOAL)
+            self.cell(120, 8, "Pharmacovigilance Case Report", ln=0, align='L')
+        else:
+            self.set_font("Arial", 'B', 12)
+            self.set_text_color(*C_CHARCOAL)
+            self.cell(120, 8, "Pharmacovigilance Case Report", ln=0, align='L')
+            
+        self.set_font("Arial", 'B', 9)
+        self.set_text_color(*C_SUCCESS)
+        self.cell(60, 8, "VALIDATED", ln=1, align='R')
+        
+        # Horizontal divider
+        self.ln(2)
+        self.set_draw_color(*C_BORDER)
+        self.set_line_width(0.3)
+        self.line(self.get_x(), self.get_y(), 210 - 15, self.get_y())
+        self.ln(5)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_draw_color(*C_BORDER)
+        self.set_line_width(0.3)
+        self.line(self.get_x(), self.get_y(), 210 - 15, self.get_y())
+        self.ln(2)
+        
+        self.set_font("Arial", '', 8)
+        self.set_text_color(*C_SLATE)
+        self.cell(90, 5, f"PV-Coder | Pharmacovigilance Intake System", ln=0, align='L')
+        self.cell(90, 5, f"Page {self.page_no()}", ln=1, align='R')
+
+    def render_seriousness(self):
+        self.set_font("Arial", 'B', 9)
+        self.set_text_color(*C_SLATE)
+        self.cell(0, 5, "CASE SERIOUSNESS", ln=1, align='L')
+        self.ln(2)
+        
+        is_serious = self.case.is_serious_case
+        bg_color = C_BG_ERROR if is_serious else C_BG_SUCCESS
+        border_color = C_ERROR if is_serious else C_SUCCESS
+        
+        self.set_fill_color(*bg_color)
+        self.set_draw_color(*border_color)
+        
+        # We simulate a block with border and background
+        x = self.get_x()
+        y = self.get_y()
+        self.rect(x, y, 180, 16, style='DF')
+        
+        self.set_xy(x + 5, y + 2)
+        self.set_font("Arial", 'B', 10)
+        if is_serious:
+            self.set_text_color(*C_ERROR)
+            self.cell(0, 6, "! SERIOUS", ln=1, align='L')
+            self.set_xy(x + 5, y + 8)
+            self.set_font("Arial", '', 9)
+            self.cell(0, 6, "Seriousness criteria detected.", ln=1, align='L')
+        else:
+            self.set_text_color(*C_SUCCESS)
+            self.cell(0, 6, "v NON-SERIOUS", ln=1, align='L')
+            self.set_xy(x + 5, y + 8)
+            self.set_font("Arial", '', 9)
+            self.cell(0, 6, "No serious criteria detected.", ln=1, align='L')
+            
+        self.set_xy(x, y + 20)
+
+    def render_case_summary_cards(self):
+        self.set_font("Arial", 'B', 9)
+        self.set_text_color(*C_SLATE)
+        self.cell(0, 5, "METRICS", ln=1, align='L')
+        self.ln(2)
+        
+        events_count = len(self.case.events)
+        drugs_count = len(set(d.canonical_name or d.text for e in self.case.events for d in e.suspected_drugs))
+        auto_count = sum(1 for e in self.case.events if e.review_status == 'Auto-coded')
+        review_count = events_count - auto_count
+        
+        # Render 4 boxes horizontally
+        x = self.get_x()
+        y = self.get_y()
+        
+        w = 42
+        gap = 4
+        
+        metrics = [
+            ("EVENTS", str(events_count), C_CHARCOAL),
+            ("DRUGS", str(drugs_count), C_CHARCOAL),
+            ("AUTO-CODED", str(auto_count), C_SUCCESS),
+            ("REVIEW", str(review_count), C_WARNING)
+        ]
+        
+        for i, (label, val, color) in enumerate(metrics):
+            cur_x = x + (w + gap) * i
+            self.set_xy(cur_x, y)
+            self.set_fill_color(*C_SURFACE)
+            self.set_draw_color(*C_BORDER)
+            self.rect(cur_x, y, w, 16, style='DF')
+            
+            self.set_xy(cur_x, y + 2)
+            self.set_font("Arial", 'B', 8)
+            self.set_text_color(*C_SLATE)
+            self.cell(w, 5, label, ln=1, align='C')
+            
+            self.set_xy(cur_x, y + 7)
+            self.set_font("Arial", 'B', 12)
+            self.set_text_color(*color)
+            self.cell(w, 7, val, ln=1, align='C')
+            
+        self.set_xy(15, y + 20)
+        self.set_draw_color(*C_BORDER)
+        self.line(15, self.get_y(), 210 - 15, self.get_y())
+        self.ln(6)
+
+    def render_clinical_narrative(self):
+        self.set_font("Arial", 'B', 9)
+        self.set_text_color(*C_PURPLE)
+        self.cell(10, 6, "01", ln=0)
+        self.set_font("Arial", 'B', 12)
+        self.set_text_color(*C_CHARCOAL)
+        self.cell(0, 6, "CLINICAL NARRATIVE", ln=1)
+        self.ln(3)
+        
+        # Draw a tinted background box around narrative
+        self.set_fill_color(*C_SURFACE)
+        self.set_draw_color(*C_BORDER)
+        
+        safe_narrative = self.case.narrative.encode('latin-1', 'replace').decode('latin-1')
+        
+        self.set_font("Arial", '', 10)
+        self.set_text_color(*C_CHARCOAL)
+        self.multi_cell(0, 6, safe_narrative, border=1, fill=True)
+        
+        self.ln(6)
+
+    def render_adverse_events(self):
+        self.set_font("Arial", 'B', 9)
+        self.set_text_color(*C_PURPLE)
+        self.cell(10, 6, "02", ln=0)
+        self.set_font("Arial", 'B', 12)
+        self.set_text_color(*C_CHARCOAL)
+        self.cell(0, 6, "ADVERSE EVENT EXTRACTION", ln=1)
+        self.ln(3)
+
+        for i, event in enumerate(self.case.events):
+            # Header of the event card
+            self.set_fill_color(*C_SURFACE)
+            self.set_draw_color(*C_BORDER)
+            
+            # Event index and status
+            self.set_font("Arial", 'B', 9)
+            self.set_text_color(*C_SLATE)
+            self.cell(90, 6, f"EVENT {i+1:02d}", border='L T', fill=True, align='L')
+            
+            status_text = event.review_status
+            if status_text == 'Auto-coded':
+                self.set_text_color(*C_SUCCESS)
+                status_disp = "v AUTO-CODED"
+            else:
+                self.set_text_color(*C_WARNING)
+                status_disp = "! HUMAN REVIEW"
+                
+            self.cell(90, 6, status_disp, border='R T', fill=True, align='R', ln=1)
+            
+            # Clinical Finding Section
+            self.set_font("Arial", 'B', 8)
+            self.set_text_color(*C_SLATE)
+            self.cell(180, 5, " Clinical Effect", border='L R', fill=True, align='L', ln=1)
+            
+            self.set_font("Arial", '', 10)
+            self.set_text_color(*C_CHARCOAL)
+            safe_effect = event.effect_text.encode('latin-1', 'replace').decode('latin-1')
+            self.cell(180, 6, f" {safe_effect}", border='L R', fill=True, align='L', ln=1)
+            
+            # MedDRA Section
+            self.set_font("Arial", 'B', 8)
+            self.set_text_color(*C_SLATE)
+            self.cell(180, 5, " MedDRA Preferred Term", border='L R', fill=True, align='L', ln=1)
+            
+            self.set_font("Arial", '', 10)
+            self.set_text_color(*C_CHARCOAL)
+            safe_pt = event.meddra_pt.encode('latin-1', 'replace').decode('latin-1')
+            self.cell(180, 6, f" {safe_pt}", border='L R', fill=True, align='L', ln=1)
+            
+            # MedDRA ID
+            self.set_font("Arial", 'B', 8)
+            self.set_text_color(*C_SLATE)
+            self.cell(180, 5, " MedDRA ID", border='L R', fill=True, align='L', ln=1)
+            
+            self.set_font("Arial", '', 10)
+            self.set_text_color(*C_CHARCOAL)
+            self.cell(180, 6, f" {event.meddra_pt_id}", border='L R', fill=True, align='L', ln=1)
+            
+            # Drugs
+            self.set_font("Arial", 'B', 8)
+            self.set_text_color(*C_SLATE)
+            self.cell(180, 5, " Suspected Drugs", border='L R', fill=True, align='L', ln=1)
+            
+            self.set_font("Arial", '', 10)
+            self.set_text_color(*C_CHARCOAL)
+            drugs = [d.canonical_name or d.text for d in event.suspected_drugs] if event.suspected_drugs else ["None"]
+            for d in drugs:
+                safe_drug = d.encode('latin-1', 'replace').decode('latin-1')
+                self.cell(180, 6, f" - {safe_drug}", border='L R', fill=True, align='L', ln=1)
+            
+            # Bottom border
+            self.cell(180, 2, "", border='L B R', fill=True, ln=1)
+            self.ln(4)
+            
+    def render_processing_summary(self):
+        self.set_font("Arial", 'B', 9)
+        self.set_text_color(*C_PURPLE)
+        self.cell(10, 6, "03", ln=0)
+        self.set_font("Arial", 'B', 12)
+        self.set_text_color(*C_CHARCOAL)
+        self.cell(0, 6, "SYSTEM METADATA", ln=1)
+        self.ln(2)
+        
+        self.set_font("Arial", '', 9)
+        self.set_text_color(*C_SLATE)
+        self.cell(40, 5, "Generated:", ln=0)
+        self.set_text_color(*C_CHARCOAL)
+        self.cell(0, 5, datetime.now().strftime("%d %b %Y . %H:%M"), ln=1)
+        
+        self.set_text_color(*C_SLATE)
+        self.cell(40, 5, "MedDRA Version:", ln=0)
+        self.set_text_color(*C_CHARCOAL)
+        self.cell(0, 5, "27.0 (Default)", ln=1)
+        
+        self.ln(5)
+        self.set_font("Arial", '', 8)
+        self.set_text_color(*C_SLATE)
+        self.multi_cell(0, 4, "PV-Coder provides NLP-assisted extraction and coding support. Human review remains required for ambiguous or review-flagged findings before final case disposition.")
 
 def generate_pdf_report(case: PharmacovigilanceCase) -> bytes:
-    pdf = FPDF()
-    pdf.add_page()
-    
-    pdf.set_font("Arial", 'B', 18)
-    pdf.set_text_color(31, 34, 41)
-    pdf.cell(0, 15, "Pharmacovigilance Intake Report", ln=True, align='C')
-    
-    pdf.set_font("Arial", '', 12)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 8, f"Case ID: {case.case_id}", ln=True, align='C')
-    pdf.ln(5)
-    
-    pdf.set_font("Arial", 'B', 14)
-    if case.is_serious_case:
-        pdf.set_fill_color(254, 226, 226) # red-100
-        pdf.set_text_color(220, 38, 38) # red-600
-        pdf.cell(0, 12, "  SERIOUS CASE DETECTED  ", ln=True, align='C', fill=True)
-    else:
-        pdf.set_fill_color(209, 250, 229) # emerald-100
-        pdf.set_text_color(5, 150, 105) # emerald-600
-        pdf.cell(0, 12, "  Non-Serious Case  ", ln=True, align='C', fill=True)
-        
-    pdf.ln(10)
-    
-    pdf.set_text_color(31, 34, 41)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 8, "Clinical Narrative:", ln=True)
-    pdf.set_font("Arial", '', 11)
-    pdf.set_text_color(60, 60, 60)
-    
-    safe_narrative = case.narrative.encode('latin-1', 'replace').decode('latin-1')
-    pdf.multi_cell(0, 6, safe_narrative)
-    pdf.ln(10)
-    
-    pdf.set_text_color(31, 34, 41)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 8, "Extracted Adverse Events:", ln=True)
-    pdf.ln(2)
-    
-    for event in case.events:
-        pdf.set_fill_color(248, 250, 252) # slate-50
-        pdf.set_draw_color(226, 232, 240) # slate-200
-        
-        safe_effect = event.effect_text.encode('latin-1', 'replace').decode('latin-1')
-        safe_pt = event.meddra_pt.encode('latin-1', 'replace').decode('latin-1')
-        drugs = ", ".join([d.canonical_name or d.text for d in event.suspected_drugs]) if event.suspected_drugs else "None"
-        
-        pdf.set_font("Arial", 'B', 11)
-        pdf.set_text_color(79, 70, 229) # indigo-600
-        pdf.cell(40, 8, " Effect:", border='L T', fill=True)
-        pdf.set_font("Arial", '', 11)
-        pdf.set_text_color(31, 34, 41)
-        pdf.cell(0, 8, f" {safe_effect}", border='R T', fill=True, ln=True)
-        
-        pdf.set_font("Arial", 'B', 11)
-        pdf.set_text_color(79, 70, 229)
-        pdf.cell(40, 8, " MedDRA PT:", border='L', fill=True)
-        pdf.set_font("Arial", '', 11)
-        pdf.set_text_color(31, 34, 41)
-        pdf.cell(0, 8, f" {safe_pt} (ID: {event.meddra_pt_id})", border='R', fill=True, ln=True)
-        
-        pdf.set_font("Arial", 'B', 11)
-        pdf.set_text_color(79, 70, 229)
-        pdf.cell(40, 8, " Drugs:", border='L', fill=True)
-        pdf.set_font("Arial", '', 11)
-        pdf.set_text_color(31, 34, 41)
-        pdf.cell(0, 8, f" {drugs}", border='R', fill=True, ln=True)
-        
-        pdf.set_font("Arial", 'B', 11)
-        pdf.set_text_color(79, 70, 229)
-        pdf.cell(40, 8, " Status:", border='L B', fill=True)
-        pdf.set_font("Arial", 'I', 10)
-        if event.review_status == 'Auto-coded':
-            pdf.set_text_color(16, 185, 129)
-        else:
-            pdf.set_text_color(245, 158, 11)
-        pdf.cell(0, 8, f" {event.review_status}", border='R B', fill=True, ln=True)
-        
-        pdf.ln(5)
-        
+    pdf = PDFReportGenerator(case)
+    pdf.render_seriousness()
+    pdf.render_case_summary_cards()
+    pdf.render_clinical_narrative()
+    pdf.render_adverse_events()
+    pdf.render_processing_summary()
     return pdf.output(dest='S')
