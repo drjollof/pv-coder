@@ -99,7 +99,9 @@ Open `http://localhost:5173` in your browser to access the PV-Coder interface.
 
 - **Single Intake Mode:** Paste a clinical narrative to see real-time extraction, MedDRA coding, and context parsing.
 - **Batch Processing:** Upload a CSV of hundreds of narratives and process them concurrently.
+- **Follow-up Intake:** Process new narratives against previous case JSONs to automatically merge and version pharmacovigilance reports.
 - **Human-in-the-Loop:** Automatically flags ambiguous or low-confidence predictions for manual review via an interactive UI.
+- **Technical & Debug Tools:** Dive deep into the NLP pipeline timings, NER confidence candidates, context modifier exclusions, and raw E2B-style JSON payloads.
 - **Enterprise Exports:** Generate printable PDF Reports or standard **E2B(R3) XML** files ready for ingestion into safety databases (Oracle Argus, Veeva Vault).
 
 ---

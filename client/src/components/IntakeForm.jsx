@@ -36,37 +36,41 @@ function IntakeForm({ narrative, setNarrative, previousCaseJson, setPreviousCase
         onChange={(e) => setNarrative(e.target.value)}
       />
 
-      <div style={{ marginTop: '1rem', background: 'var(--bg-tertiary)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--glass-border)' }}>
-        <h4 style={{ marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Is this a Follow-up Case? (Optional)</h4>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-          Upload a previously exported Case JSON. The new narrative above will be processed and merged with the existing case to create a new version.
-        </p>
-        <div className="mobile-stack" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <label 
-            className="btn btn-secondary btn-mobile-full" 
-            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <input 
-              type="file" 
-              accept=".json" 
-              onChange={handleFileUpload} 
-              disabled={loading}
-              style={{ display: 'none' }}
-            />
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-            Select Previous Case (.json)
-          </label>
-          
-          {previousCaseJson ? (
-            <span style={{ color: 'var(--success)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-               Prior Case Loaded
-            </span>
-          ) : (
-            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No file chosen</span>
-          )}
+      <details style={{ marginTop: '1rem', background: 'var(--bg-tertiary)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--glass-border)' }}>
+        <summary style={{ cursor: 'pointer', fontWeight: '600', color: 'var(--text-primary)', outline: 'none' }}>
+          Is this a Follow-up Case? (Optional)
+        </summary>
+        <div style={{ marginTop: '1rem' }}>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+            Upload a previously exported Case JSON. The new narrative above will be processed and merged with the existing case to create a new version.
+          </p>
+          <div className="mobile-stack" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <label 
+              className="btn btn-secondary btn-mobile-full" 
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <input 
+                type="file" 
+                accept=".json" 
+                onChange={handleFileUpload} 
+                disabled={loading}
+                style={{ display: 'none' }}
+              />
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+              Select Previous Case (.json)
+            </label>
+            
+            {previousCaseJson ? (
+              <span style={{ color: 'var(--success)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                 Prior Case Loaded
+              </span>
+            ) : (
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No file chosen</span>
+            )}
+          </div>
         </div>
-      </div>
+      </details>
       <button
         className="btn btn-primary"
         onClick={handleAnalyze}

@@ -5,7 +5,7 @@ from datetime import datetime
 # Colors
 C_CHARCOAL = (31, 41, 55)
 C_SLATE = (100, 116, 139)
-C_BORDER = (217, 222, 231)
+C_BORDER = (180, 185, 195) # Darkened so boundaries are clearly visible
 C_SURFACE = (248, 250, 252)
 C_PURPLE = (109, 40, 217)
 C_SUCCESS = (5, 150, 105)
@@ -187,62 +187,69 @@ class PDFReportGenerator(FPDF):
             # Event index and status
             self.set_font("Arial", 'B', 9)
             self.set_text_color(*C_SLATE)
-            self.cell(90, 6, f"EVENT {i+1:02d}", border='L T', fill=True, align='L')
+            self.cell(90, 8, f"  EVENT {i+1:02d}", border='L T B', fill=True, align='L')
             
             status_text = event.review_status
             if status_text == 'Auto-coded':
                 self.set_text_color(*C_SUCCESS)
-                status_disp = "v AUTO-CODED"
+                status_disp = "v AUTO-CODED  "
             else:
                 self.set_text_color(*C_WARNING)
-                status_disp = "! HUMAN REVIEW"
+                status_disp = "! HUMAN REVIEW  "
                 
-            self.cell(90, 6, status_disp, border='R T', fill=True, align='R', ln=1)
+            self.cell(90, 8, status_disp, border='R T B', fill=True, align='R', ln=1)
             
             # Clinical Finding Section
+            self.cell(180, 2, "", border='L R', fill=True, ln=1) # Top padding
             self.set_font("Arial", 'B', 8)
             self.set_text_color(*C_SLATE)
-            self.cell(180, 5, " Clinical Effect", border='L R', fill=True, align='L', ln=1)
+            self.cell(180, 5, "  Clinical Effect", border='L R', fill=True, align='L', ln=1)
             
             self.set_font("Arial", '', 10)
             self.set_text_color(*C_CHARCOAL)
             safe_effect = event.effect_text.encode('latin-1', 'replace').decode('latin-1')
-            self.cell(180, 6, f" {safe_effect}", border='L R', fill=True, align='L', ln=1)
+            self.cell(180, 6, f"  {safe_effect}", border='L R', fill=True, align='L', ln=1)
+            self.cell(180, 2, "", border='L B R', fill=True, ln=1) # Spacer with bottom border
             
             # MedDRA Section
+            self.cell(180, 2, "", border='L R', fill=True, ln=1) # Top padding
             self.set_font("Arial", 'B', 8)
             self.set_text_color(*C_SLATE)
-            self.cell(180, 5, " MedDRA Preferred Term", border='L R', fill=True, align='L', ln=1)
+            self.cell(180, 5, "  MedDRA Preferred Term", border='L R', fill=True, align='L', ln=1)
             
             self.set_font("Arial", '', 10)
             self.set_text_color(*C_CHARCOAL)
             safe_pt = event.meddra_pt.encode('latin-1', 'replace').decode('latin-1')
-            self.cell(180, 6, f" {safe_pt}", border='L R', fill=True, align='L', ln=1)
+            self.cell(180, 6, f"  {safe_pt}", border='L R', fill=True, align='L', ln=1)
+            self.cell(180, 2, "", border='L B R', fill=True, ln=1) # Spacer with bottom border
             
             # MedDRA ID
+            self.cell(180, 2, "", border='L R', fill=True, ln=1) # Top padding
             self.set_font("Arial", 'B', 8)
             self.set_text_color(*C_SLATE)
-            self.cell(180, 5, " MedDRA ID", border='L R', fill=True, align='L', ln=1)
+            self.cell(180, 5, "  MedDRA ID", border='L R', fill=True, align='L', ln=1)
             
             self.set_font("Arial", '', 10)
             self.set_text_color(*C_CHARCOAL)
-            self.cell(180, 6, f" {event.meddra_pt_id}", border='L R', fill=True, align='L', ln=1)
+            self.cell(180, 6, f"  {event.meddra_pt_id}", border='L R', fill=True, align='L', ln=1)
+            self.cell(180, 2, "", border='L B R', fill=True, ln=1) # Spacer with bottom border
             
             # Drugs
+            self.cell(180, 2, "", border='L R', fill=True, ln=1) # Top padding
             self.set_font("Arial", 'B', 8)
             self.set_text_color(*C_SLATE)
-            self.cell(180, 5, " Suspected Drugs", border='L R', fill=True, align='L', ln=1)
+            self.cell(180, 5, "  Suspected Drugs", border='L R', fill=True, align='L', ln=1)
             
             self.set_font("Arial", '', 10)
             self.set_text_color(*C_CHARCOAL)
             drugs = [d.canonical_name or d.text for d in event.suspected_drugs] if event.suspected_drugs else ["None"]
             for d in drugs:
                 safe_drug = d.encode('latin-1', 'replace').decode('latin-1')
-                self.cell(180, 6, f" - {safe_drug}", border='L R', fill=True, align='L', ln=1)
+                self.cell(180, 6, f"  - {safe_drug}", border='L R', fill=True, align='L', ln=1)
             
             # Bottom border
-            self.cell(180, 2, "", border='L B R', fill=True, ln=1)
-            self.ln(4)
+            self.cell(180, 4, "", border='L B R', fill=True, ln=1)
+            self.ln(6)
             
     def render_processing_summary(self):
         self.set_font("Arial", 'B', 9)

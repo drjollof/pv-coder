@@ -3,6 +3,8 @@ import { AlertTriangle, CheckCircle, Download, FileText, ChevronDown, ChevronRig
 import { Client } from "@gradio/client";
 import HighlightedText from './HighlightedText';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import TechnicalDebugView from './TechnicalDebugView';
+
 function BatchUpload() {
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
@@ -805,6 +807,37 @@ function BatchUpload() {
                               </table>
                             </div>
                           )}
+
+                          <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                            <button className="btn btn-secondary" onClick={async () => {
+                              try {
+                                const client = await Client.connect(window.API_URL, { hf_token: window.HF_TOKEN || undefined });
+                                const res = await client.predict('/export_pdf', [JSON.stringify(c)]);
+                                const payload = res.data[0];
+                                const bytes = Uint8Array.from(atob(payload), ch => ch.charCodeAt(0));
+                                const blob = new Blob([bytes], { type: 'application/pdf' });
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `PV-Coder_${c.case_id}_Report.pdf`;
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                              } catch (e) {
+                                alert('Error generating PDF');
+                                console.error(e);
+                              }
+                            }} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <Download size={16} /> Download PDF Report
+                            </button>
+                          </div>
+
+                          <details style={{ marginTop: '2rem' }}>
+                            <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.5rem', userSelect: 'none' }}>
+                              Show Technical / Debug View
+                            </summary>
+                            <TechnicalDebugView result={c} />
+                          </details>
                         </td>
                       </tr>
                     )}
