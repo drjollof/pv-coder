@@ -3,12 +3,14 @@ import { Circle, CircleDot, CheckCircle } from 'lucide-react';
 import { Client } from "@gradio/client";
 import HighlightedText from './HighlightedText';
 
-import IntakeForm from './IntakeForm';
+import { getDrugBadgeStyle } from '../utils/colors';
+import CaseOverviewPanel from './CaseOverviewPanel';
 import DemographicsPanel from './DemographicsPanel';
 import MedicationsPanel from './MedicationsPanel';
-import CaseOverviewPanel from './CaseOverviewPanel';
 import ExtractionTable from './ExtractionTable';
 import ValidationExportPanel from './ValidationExportPanel';
+import IntakeForm from './IntakeForm';
+import TechnicalDebugView from './TechnicalDebugView';
 
 function SingleIntake() {
   const [narrative, setNarrative] = useState('');
@@ -367,11 +369,7 @@ function SingleIntake() {
             <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.5rem', userSelect: 'none' }}>
               Show Technical / Debug View
             </summary>
-            <div style={{ padding: '1rem', background: 'var(--bg-tertiary)', borderRadius: '8px', overflowX: 'auto', fontFamily: 'monospace', fontSize: '0.8rem', border: '1px solid var(--glass-border)', color: 'var(--text-primary)' }}>
-              <pre style={{ margin: 0 }}>
-                {JSON.stringify(getFilteredResult(), null, 2)}
-              </pre>
-            </div>
+            <TechnicalDebugView result={getFilteredResult()} />
           </details>
 
         </div>
