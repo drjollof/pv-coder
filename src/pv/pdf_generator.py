@@ -83,14 +83,14 @@ class PDFReportGenerator(FPDF):
         self.ln(2)
         self.set_draw_color(*C_BORDER)
         self.set_line_width(0.3)
-        self.line(self.get_x(), self.get_y(), 210 - 15, self.get_y())
+        self.line(self.x, self.y, 210 - 15, self.y)
         self.ln(5)
 
     def footer(self):
         self.set_y(-15)
         self.set_draw_color(*C_BORDER)
         self.set_line_width(0.3)
-        self.line(self.get_x(), self.get_y(), 210 - 15, self.get_y())
+        self.line(self.x, self.y, 210 - 15, self.y)
         self.ln(2)
         
         self.set_font("Arial", '', 8)
@@ -112,8 +112,8 @@ class PDFReportGenerator(FPDF):
         self.set_draw_color(*border_color)
         
         # We simulate a block with border and background
-        x = self.get_x()
-        y = self.get_y()
+        x = self.x
+        y = self.y
         self.rect(x, y, 180, 16, style='DF')
         
         self.set_xy(x + 5, y + 2)
@@ -145,8 +145,8 @@ class PDFReportGenerator(FPDF):
         review_count = events_count - auto_count
         
         # Render 4 boxes horizontally
-        x = self.get_x()
-        y = self.get_y()
+        x = self.x
+        y = self.y
         
         w = 42
         gap = 4
@@ -177,7 +177,7 @@ class PDFReportGenerator(FPDF):
             
         self.set_xy(15, y + 20)
         self.set_draw_color(*C_BORDER)
-        self.line(15, self.get_y(), 210 - 15, self.get_y())
+        self.line(15, self.y, 210 - 15, self.y)
         self.ln(6)
 
     def render_clinical_narrative(self):
