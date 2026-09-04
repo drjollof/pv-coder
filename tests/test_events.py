@@ -18,7 +18,7 @@ def test_event_builder_explicit_relation(builder):
         diseases=[ExtractedEntity("hepatotoxicity", "DISEASE", 47, 61)]
     )
     
-    events = builder.build(result, text)
+    events, _ = builder.build(result, text)
     assert len(events) == 1
     
     ev = events[0]
@@ -35,14 +35,14 @@ def test_event_builder_temporal_relation(builder):
         diseases=[ExtractedEntity("rash", "DISEASE", 53, 57)]
     )
     
-    events = builder.build(result, text)
+    events, _ = builder.build(result, text)
     assert len(events) == 1
     assert events[0].relations[0].level == RelationLevel.EVENT_ASSOCIATION
 
 def test_seriousness_classifier(seriousness):
-    assert seriousness.is_serious("fatal stroke", "Patient had a fatal stroke.")
-    assert seriousness.is_serious("death", "Death due to cardiac arrest.")
+    assert seriousness.is_serious("fatal stroke", "Patient had a fatal stroke.")[0]
+    assert seriousness.is_serious("death", "Death due to cardiac arrest.")[0]
     
-    assert seriousness.is_serious("nausea", "Patient developed nausea and was hospitalized.")
+    assert seriousness.is_serious("nausea", "Patient developed nausea and was hospitalized.")[0]
     
-    assert not seriousness.is_serious("headache", "Patient had a mild headache.")
+    assert not seriousness.is_serious("headache", "Patient had a mild headache.")[0]

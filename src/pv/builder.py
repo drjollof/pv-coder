@@ -14,10 +14,14 @@ import time
 from src.normalization.synonyms import SynonymNormalizer
 from src.extraction.demographics import DemographicsExtractor
 from src.extraction.drug_attributes import DrugAttributeExtractor
+from src.extraction.context import ContextFilter
 class CaseBuilder:
     def __init__(self, dict_path: str, faiss_index_path: str = None):
         print("Initializing NER Pipeline...", flush=True)
         self.ner = ExtractionPipeline()
+        
+        print("Initializing Context Filter...", flush=True)
+        self.context_filter = ContextFilter()
 
         print("Initializing Event Builder...", flush=True)
         self.event_builder = EventBuilder()
@@ -60,6 +64,7 @@ class CaseBuilder:
 
         print(f"[{case_id}] Extracting entities...", flush=True)
         candidates = self.ner.extract(narrative)
+        candidates = self.context_filter.annotate(candidates)
         t1 = time.time()
         timings["Extraction"] = round(t1 - t0, 3)
         
@@ -100,11 +105,16 @@ class CaseBuilder:
                 meddra_pt, meddra_pt_id, conf = "Unknown", "Unknown", 0.0
 
             suspected_drugs = []
+            seen_drugs = set()
             for d in ae.drugs:
+                d_key = d.text.lower().strip()
+                if d_key in seen_drugs:
+                    continue
+                seen_drugs.add(d_key)
                 norm_dict = self.drug_normalizer.normalize(d.text)
                 attrs = self.drug_attr_extractor.extract_for_drug(d.end_char, narrative)
                 suspected_drugs.append(ExtractedDrug(
-                text=d.text,
+                    text=d.text,
                     start_char=d.start_char + offset if d.start_char is not None else None,
                     end_char=d.end_char + offset if d.end_char is not None else None,
                     canonical_name=norm_dict.get('canonical_name') if norm_dict else None,
@@ -143,7 +153,12 @@ class CaseBuilder:
         timings["MedDRA coding"] = round(t3 - t2, 3)
 
         extracted_drugs = []
+        seen_all_drugs = set()
         for d in candidates.drugs:
+            d_key = d.text.lower().strip()
+            if d_key in seen_all_drugs:
+                continue
+            seen_all_drugs.add(d_key)
             norm_dict = self.drug_normalizer.normalize(d.text)
             attrs = self.drug_attr_extractor.extract_for_drug(d.end_char, narrative)
             extracted_drugs.append(ExtractedDrug(

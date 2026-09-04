@@ -45,3 +45,8 @@ CONTEXT.md
 pv-coder-consolidated-feature-Improvement-specification.md
 PV-Coder PDF Export — Professional Redesign Specification.md
 scratch/
+
+# Large ONNX models (we only track the quantized ones)
+models/ner_onnx/
+models/sapbert_onnx/
+models/*_quantized/model_quantized.onnx

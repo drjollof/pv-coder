@@ -20,6 +20,7 @@ class SeriousnessClassifier:
         r'\bcongenital\b',
         r'\banomaly\b',
         r'\bsevere\b',
+        r'\bserious\b',
         r'\bicu\b',
         r'\bintensive care\b'
     ]

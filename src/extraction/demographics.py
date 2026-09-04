@@ -7,8 +7,17 @@ class DemographicsExtractor:
     """
     
     def __init__(self):
-        # Age patterns: "45-year-old", "45 y/o", "age 45", "12 months", "3 weeks old"
-        self.age_pattern = re.compile(r'\b(?:age\s+)?(\d{1,3})\s*(?:year(?:s)?|yr(?:s)?|month(?:s)?|mo(?:s)?|week(?:s)?|wk(?:s)?|day(?:s)?|-year-old|-yr-old)\s*(?:old|of\s*age)?\b|(?:\b|^)(\d{1,3})\s*(?:y/o|yo)\b', re.IGNORECASE)
+        # Age patterns: "45-year-old", "45 y/o", "age 45", "12 months old"
+        # Explicitly avoid bare "12 months" (could be drug duration) unless it has age context.
+        self.age_pattern = re.compile(
+            r'\b(?:'
+            r'age\s+\d{1,3}(?:\s*(?:years?|months?|weeks?|days?))?|'
+            r'\d{1,3}\s*(?:years?|yrs?|months?|mos?|weeks?|wks?|days?)\s+(?:old|of\s+age)|'
+            r'\d{1,3}\s*-\s*(?:year|yr|month|mo|week|wk|day)\s*-\s*old|'
+            r'\d{1,3}\s*(?:y/o|yo)'
+            r')\b', 
+            re.IGNORECASE
+        )
         
         # Gender patterns
         self.gender_pattern = re.compile(r'\b(male|female|man|woman|boy|girl|gentleman|lady)\b', re.IGNORECASE)
@@ -16,37 +25,44 @@ class DemographicsExtractor:
         # Weight patterns: "70 kg", "70kg", "150 lbs", "70.5 kg"
         self.weight_pattern = re.compile(r'\b(\d+(?:\.\d+)?)\s*(?:kg|kilos|kilograms|lbs|pounds)\b', re.IGNORECASE)
 
+        # Family member context to avoid attributing family demographics to the patient
+        self.family_pattern = re.compile(r'\b(mother|father|brother|sister|son|daughter|wife|husband|uncle|aunt|grandmother|grandfather|cousin|niece|nephew)\b', re.IGNORECASE)
+
+    def _get_sentence(self, text: str, start: int, end: int) -> str:
+        s_start = max(0, text.rfind('.', 0, start) + 1)
+        s_end = text.find('.', end)
+        s_end = s_end if s_end != -1 else len(text)
+        return text[s_start:s_end]
+
     def extract(self, narrative: str) -> Optional[Dict[str, Optional[str]]]:
         """
         Extracts age, gender, and weight from the narrative.
-        Returns a dictionary suitable for the PatientDemographics schema.
+        Ignores mentions that appear in the same sentence as family members.
         """
-        result = {
-            "age": None,
-            "gender": None,
-            "weight": None
-        }
+        result = {"age": None, "gender": None, "weight": None}
 
         # Extract Age
-        age_match = self.age_pattern.search(narrative)
-        if age_match:
-            # Re-extract the full matched phrase for the UI
-            start, end = age_match.span()
-            result["age"] = narrative[start:end].strip()
+        for match in self.age_pattern.finditer(narrative):
+            sentence = self._get_sentence(narrative, match.start(), match.end())
+            if not self.family_pattern.search(sentence):
+                result["age"] = match.group(0).strip()
+                break
 
         # Extract Gender
-        gender_match = self.gender_pattern.search(narrative)
-        if gender_match:
-            result["gender"] = gender_match.group(1).lower().capitalize()
+        for match in self.gender_pattern.finditer(narrative):
+            sentence = self._get_sentence(narrative, match.start(), match.end())
+            if not self.family_pattern.search(sentence):
+                result["gender"] = match.group(1).lower().capitalize()
+                break
 
         # Extract Weight
-        weight_match = self.weight_pattern.search(narrative)
-        if weight_match:
-            start, end = weight_match.span()
-            result["weight"] = narrative[start:end].strip()
+        for match in self.weight_pattern.finditer(narrative):
+            sentence = self._get_sentence(narrative, match.start(), match.end())
+            if not self.family_pattern.search(sentence):
+                result["weight"] = match.group(0).strip()
+                break
 
-        # Return None for all if nothing was found (optional, but cleaner)
-        if not result["age"] and not result["gender"] and not result["weight"]:
+        if not any(result.values()):
             return None
 
         return result
