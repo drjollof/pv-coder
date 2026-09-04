@@ -46,9 +46,11 @@ class EventBuilder:
     """
     Constructs PharmacovigilanceEvents from an ExtractionResult using
     contextual triggers and event structure logic.
-    """
 
     # Explicit causal relation patterns — "induced by", "due to", "secondary to", etc.
+    # Temporal / event association patterns — "developed", "after receiving", etc.
+    """
+
     L1_PATTERNS = [
         re.compile(r"induced\s+by", re.IGNORECASE),
         re.compile(r"due\s+to", re.IGNORECASE),
@@ -57,7 +59,7 @@ class EventBuilder:
         re.compile(r"following\s+(?:administration|infusion|treatment|therapy)\s+of", re.IGNORECASE),
     ]
 
-    # Temporal / event association patterns — "developed", "after receiving", etc.
+    
     L2_PATTERNS = [
         re.compile(r"(?:developed|experienced|suffered|presented\s+with|showed).{0,50}", re.IGNORECASE),
         re.compile(r"after\s+(?:taking|receiving|initiation\s+of|starting).{0,50}", re.IGNORECASE),

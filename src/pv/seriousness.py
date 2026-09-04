@@ -7,7 +7,6 @@ class SeriousnessClassifier:
     Follows ICH E2A guidelines via keyword matching on the event and narrative context.
     """
     
-    # ICH E2A Seriousness Criteria Keywords
     SERIOUS_KEYWORDS = [
         r'\bfatal\b',
         r'\bdeath\b',
@@ -37,12 +36,14 @@ class SeriousnessClassifier:
         For document-level keywords, if the document mentions death/hospitalization,
         we conservatively flag all extracted AEs in the document as serious.
         This is a common PV triage strategy to avoid missing critical cases.
+
+        Find the sentence containing the match for evidence
         """
     
         for reason, pattern in self.patterns:
             match = pattern.search(event_text)
             if match:
-                # Find the sentence containing the match for evidence
+               
                 start = max(0, event_text.rfind('.', 0, match.start()) + 1)
                 end = event_text.find('.', match.end())
                 end = end if end != -1 else len(event_text)
@@ -52,7 +53,7 @@ class SeriousnessClassifier:
         for reason, pattern in self.patterns:
             match = pattern.search(narrative)
             if match:
-                # Find the sentence containing the match for evidence
+                
                 start = max(0, narrative.rfind('.', 0, match.start()) + 1)
                 end = narrative.find('.', match.end())
                 end = end if end != -1 else len(narrative)

@@ -20,6 +20,19 @@ Why DISEASE and not ADVERSE_EVENT:
     event requires event-structure and context logic that is downstream of
     entity recognition. This module only detects spans; classification is
     the responsibility of ContextFilter and pv.case_schema.
+
+
+Explicit mapping from model entity_group → internal role.
+Keys are the uppercased entity_group strings returned by the transformers
+pipeline with aggregation_strategy="simple" (i.e., the BIO prefix is stripped).
+
+Blank spaCy pipeline used only to create Doc containers for ConText.
+The sentencizer is required because MedSpaCy ConText uses sentence 
+boundaries to scope modifier propagation.
+
+
+DistilBERT max is 512 tokens; leave headroom for special tokens and
+subword expansion (each word can split into 2-3 pieces).
 """
 
 from __future__ import annotations
@@ -33,9 +46,6 @@ from spacy.tokens import Doc
 
 
 
-# Explicit mapping from model entity_group → internal role.
-# Keys are the uppercased entity_group strings returned by the transformers
-# pipeline with aggregation_strategy="simple" (i.e., the BIO prefix is stripped).
 _GROUP_TO_ROLE: dict[str, str] = {
     "MEDICATION":       "DRUG",
     "DISEASE_DISORDER": "DISEASE",
@@ -54,7 +64,7 @@ class ExtractedEntity:
     """
 
     text: str
-    label: str        # DRUG | DISEASE
+    label: str        
     start_char: int
     end_char: int
     negated: bool = False
@@ -82,6 +92,7 @@ class ExtractionResult:
     diseases — spans whose entity group maps to DISEASE;
                includes AE candidates and background conditions
     doc      — spaCy Doc with ents set (required by ContextFilter)
+    Current-context disease candidates — not yet classified as AE vs. indication.
     """
 
     drugs: list[ExtractedEntity] = field(default_factory=list)
@@ -95,7 +106,6 @@ class ExtractionResult:
         return [e for e in self.drugs if e.is_current]
 
     def current_diseases(self) -> list[ExtractedEntity]:
-        """Current-context disease candidates — not yet classified as AE vs. indication."""
         return [e for e in self.diseases if e.is_current]
 
 
@@ -106,11 +116,13 @@ class ExtractionPipeline:
     The pipeline loads once at construction and is reused across calls. A spaCy
     blank pipeline is used only to create Doc objects so that MedSpaCy ConText
     can operate on the extracted spans.
+
+    Use absolute path based on repository root.
     """
 
     DEFAULT_MODEL = "d4data/biomedical-ner-all"
     
-    # Use absolute path based on repository root
+    
     from pathlib import Path
     _ROOT = Path(__file__).parent.parent.parent
     ONNX_MODEL_DIR = str(_ROOT / "models" / "ner_onnx_quantized")
@@ -153,14 +165,11 @@ class ExtractionPipeline:
                 aggregation_strategy="first"
             )
             
-        # Blank spaCy pipeline used only to create Doc containers for ConText.
-        # The sentencizer is required because MedSpaCy ConText uses sentence
-        # boundaries to scope modifier propagation.
+        
         self._nlp = spacy.blank("en")
         self._nlp.add_pipe("sentencizer")
 
-    # DistilBERT max is 512 tokens; leave headroom for special tokens and
-    # subword expansion (each word can split into 2-3 pieces).
+
     _MAX_CHUNK_TOKENS: int = 400
 
     def _chunk_text(self, text: str) -> list[tuple[str, int]]:
@@ -239,6 +248,16 @@ class ExtractionPipeline:
         This aggregator robustly merges any adjacent/overlapping tokens of the
         same label into a single span, and walks back to word boundaries to
         ensure no part of the surface form is lost.
+
+        Merge if the label is the same and the token is contiguous or overlapping
+        with the current span, regardless of whether it's a B- or I- tag.
+        Before saving, expand forward to the end of the word in case
+        suffix tokens were dropped (predicted O) by the model.
+
+        Walk back to the start of the word if this is a continuation subword.
+        Stop at space or punctuation (except internal hyphens which are common in drugs).
+
+        Continuation — extend the span.
         """
         if not tokens:
             return []
@@ -247,19 +266,17 @@ class ExtractionPipeline:
         current: dict | None = None
 
         for tok in tokens:
-            raw_label = tok["entity"]          # e.g. "B-Medication" / "I-Medication"
+            raw_label = tok["entity"]
             bio, _, label = raw_label.partition("-")
             if not label:
                 label, bio = bio, "B"
 
-            # Merge if the label is the same and the token is contiguous or overlapping
-            # with the current span, regardless of whether it's a B- or I- tag.
+            
             is_contiguous = current is not None and label == current["_label"] and tok["start"] <= current["end"]
 
             if not is_contiguous:
                 if current is not None:
-                    # Before saving, expand forward to the end of the word in case
-                    # suffix tokens were dropped (predicted O) by the model.
+                    
                     end_idx = current["end"]
                     while end_idx < len(text) and (text[end_idx].isalnum() or text[end_idx] == '-'):
                         end_idx += 1
@@ -267,8 +284,7 @@ class ExtractionPipeline:
                     groups.append(current)
 
                 start = tok["start"]
-                # Walk back to the start of the word if this is a continuation subword.
-                # Stop at space or punctuation (except internal hyphens which are common in drugs).
+                
                 while start > 0 and (text[start - 1].isalnum() or text[start - 1] == '-'):
                     start -= 1
                 current = {
@@ -279,7 +295,7 @@ class ExtractionPipeline:
                     "_label": label,
                 }
             else:
-                # Continuation — extend the span.
+                
                 current["end"] = max(current["end"], tok["end"])
                 current["score"] = min(current["score"], tok["score"])
 
@@ -293,14 +309,17 @@ class ExtractionPipeline:
         return groups
 
     def _run_ner(self, text: str) -> list[dict]:
-        """Run the NER pipeline and normalise output to entity_group dicts."""
+        """Run the NER pipeline and normalise output to entity_group dicts.
+        If the output already has 'entity_group', it was aggregated by the pipeline.
+        Otherwise it's raw BIO tokens (from the ONNX quantized model).
+        """
         raw = self._ner(text)
         if not raw:
             return raw
-        # If the output already has 'entity_group', it was aggregated by the pipeline
+        
         if "entity_group" in raw[0]:
             return raw
-        # Otherwise it's raw BIO tokens (e.g. from the ONNX quantized model)
+        
         return self._aggregate_bio_tokens(raw, text)
 
     def extract_batch(
@@ -314,7 +333,11 @@ class ExtractionPipeline:
 
 
     def _build_result(self, text: str, ner_output: list[dict]) -> ExtractionResult:
-        # Run through the blank pipeline (sentencizer sets boundaries for ConText).
+        """
+        Run through the blank pipeline (sentencizer sets boundaries for ConText).
+        Normalise to uppercase with underscores to match _GROUP_TO_ROLE keys.
+        aggregation_strategy="simple" strips BIO prefix; handle both cases.
+        """
         doc     = self._nlp(text)
         drugs:    list[ExtractedEntity] = []
         diseases: list[ExtractedEntity] = []
@@ -322,8 +345,8 @@ class ExtractionPipeline:
 
         for ent in ner_output:
             raw_group = ent.get("entity_group", ent.get("entity", ""))
-            # Normalise to uppercase with underscores to match _GROUP_TO_ROLE keys.
-            # aggregation_strategy="simple" strips BIO prefix; handle both cases.
+
+            
             group = raw_group.upper().lstrip("BI-").replace("-", "_").replace(" ", "_")
             label = _GROUP_TO_ROLE.get(group)
             if label is None:

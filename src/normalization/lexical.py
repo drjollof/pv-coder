@@ -9,17 +9,21 @@ class LexicalNormalizer:
         """
         Initializes the lexical normalizer with a MedDRA dictionary.
         dictionary_df must contain 'meddra_pt_id' and 'meddra_pt'.
+
+        Precompute exact match dictionary (lowercase)
+
+        Precompute TF-IDF matrix for the dictionary
+        We use character n-grams (3-5) to capture spelling variations
         """
         self.dict_df = dictionary_df.copy()
         
-        # Precompute exact match dictionary (lowercase)
+        
         self.exact_dict = {
             row['meddra_pt'].lower(): (row['meddra_pt_id'], row['meddra_pt'])
             for _, row in self.dict_df.iterrows()
         }
         
-        # Precompute TF-IDF matrix for the dictionary
-        # We use character n-grams (3-5) to capture spelling variations
+        
         self.vectorizer = TfidfVectorizer(analyzer='char_wb', ngram_range=(3, 5))
         self.dict_texts = self.dict_df['meddra_pt'].str.lower().tolist()
         self.tfidf_matrix = self.vectorizer.fit_transform(self.dict_texts)
@@ -47,25 +51,32 @@ class LexicalNormalizer:
         results = []
         for idx in top_indices:
             score = cos_sim[idx]
-            if score > 0.1: # Threshold to filter noise
+            
+            # Threshold to filter noise
+            if score > 0.1: 
                 row = self.dict_df.iloc[idx]
                 results.append((row['meddra_pt'], row['meddra_pt_id'], score))
         return results
         
     def match_fuzzywuzzy(self, query: str, top_k: int = 5) -> List[Tuple[str, str, float]]:
-        """Levenshtein distance based fuzzy matching."""
+        """Levenshtein distance based fuzzy matching.
+        
+        token_sort_ratio handles multi-word variations well
+        
+        Sort by score descending
+        """
         if not query:
             return []
             
         scores = []
         q = query.lower()
         for idx, text in enumerate(self.dict_texts):
-            # token_sort_ratio handles multi-word variations well
+            
             score = fuzz.token_sort_ratio(q, text) / 100.0
             if score > 0.5:
                 scores.append((idx, score))
                 
-        # Sort by score descending
+        
         scores.sort(key=lambda x: x[1], reverse=True)
         
         results = []

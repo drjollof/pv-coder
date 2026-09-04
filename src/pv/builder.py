@@ -15,7 +15,15 @@ from src.normalization.synonyms import SynonymNormalizer
 from src.extraction.demographics import DemographicsExtractor
 from src.extraction.drug_attributes import DrugAttributeExtractor
 from src.extraction.context import ContextFilter
+
+
 class CaseBuilder:
+    """
+    Orchestrates the end-to-end PV case processing pipeline.
+
+    MedDRA version is stored in the dictionary if available, otherwise default
+    In a real scenario, extract from dictionary metadata
+    """
     def __init__(self, dict_path: str, faiss_index_path: str = None):
         print("Initializing NER Pipeline...", flush=True)
         self.ner = ExtractionPipeline()
@@ -45,20 +53,22 @@ class CaseBuilder:
         print("Initializing Drug Attribute Extractor...", flush=True)
         self.drug_attr_extractor = DrugAttributeExtractor()
 
-        # MedDRA version is stored in the dictionary if available, otherwise default
-        self.meddra_version = "27.0 (Default)" # In a real scenario, extract from dictionary metadata
+        
+        self.meddra_version = "27.0 (Default)" 
 
     def process(self, narrative: str, case_id: str, previous_case_dict: Optional[dict] = None) -> PharmacovigilanceCase:
         """
         Processes a raw clinical narrative into a structured PharmacovigilanceCase.
         If previous_case_dict is provided, processes the narrative as a follow-up and merges it.
+        
+        Using dict unpacking if demographic data is found, otherwise None
         """
         timings = {}
         t0 = time.time()
         
         print(f"[{case_id}] Extracting demographics...", flush=True)
         demographics_data = self.demographics_extractor.extract(narrative)
-        # Using dict unpacking if demographic data is found, otherwise None
+        
         from src.pv.case_schema import PatientDemographics
         demographics = PatientDemographics(**demographics_data) if demographics_data else None
 
