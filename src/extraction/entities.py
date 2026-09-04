@@ -136,7 +136,7 @@ class ExtractionPipeline:
                     "ner",
                     model=model_onnx,
                     tokenizer=tokenizer,
-                    aggregation_strategy="first"
+                    aggregation_strategy=None
                 )
             except Exception as e:
                 print(f"ONNX NER load warning: {e}. Falling back to native model: {model}...", flush=True)
@@ -159,30 +159,159 @@ class ExtractionPipeline:
         self._nlp = spacy.blank("en")
         self._nlp.add_pipe("sentencizer")
 
+        # True when the pipeline returns raw per-token dicts (aggregation_strategy=None)
+        # rather than pre-grouped entity_group dicts.
+        self._raw_bio = getattr(self._ner, 'aggregation_strategy', None) is None
+
+    # DistilBERT max is 512 tokens; leave headroom for special tokens and
+    # subword expansion (each word can split into 2-3 pieces).
+    _MAX_CHUNK_TOKENS: int = 400
+
+    def _chunk_text(self, text: str) -> list[tuple[str, int]]:
+        """
+        Split text into sentence-aligned chunks within the model's token budget.
+
+        Returns a list of (chunk_text, char_offset) pairs where char_offset is
+        the character position of that chunk's start in the original text.
+        Sentences that individually exceed the budget are passed as-is and let
+        the model handle truncation internally (degenerate edge case).
+        """
+        doc = self._nlp(text)
+        sentences = list(doc.sents)
+
+        chunks: list[tuple[str, int]] = []
+        current_sents: list = []
+        current_token_count: int = 0
+        chunk_start: int = 0
+
+        for sent in sentences:
+            token_count = len(self._ner.tokenizer.tokenize(sent.text))
+
+            if current_sents and (current_token_count + token_count) > self._MAX_CHUNK_TOKENS:
+                chunk_end = current_sents[-1].end_char
+                chunks.append((text[chunk_start:chunk_end], chunk_start))
+                chunk_start = sent.start_char
+                current_sents = [sent]
+                current_token_count = token_count
+            else:
+                current_sents.append(sent)
+                current_token_count += token_count
+
+        if current_sents:
+            chunk_end = current_sents[-1].end_char
+            chunks.append((text[chunk_start:chunk_end], chunk_start))
+
+        return chunks or [(text, 0)]
+
     def extract(self, text: str) -> ExtractionResult:
         """
         Detect DRUG and DISEASE spans in a single text.
 
+        Long narratives are split into sentence-aligned token-safe chunks before
+        inference to prevent DistilBERT's 512-token limit from silently dropping
+        entity B- tags near the truncation boundary. Chunk-relative offsets are
+        remapped to original-text coordinates and duplicate spans are discarded.
+
         Context flags on all returned entities are False. Pass the result
         through ContextFilter to populate them.
         """
-        ner_out = self._ner(text)
-        return self._build_result(text, ner_out)
+        chunks = self._chunk_text(text)
+
+        if len(chunks) == 1:
+            return self._build_result(text, self._run_ner(text))
+
+        merged_ner: list[dict] = []
+        seen_spans: set[tuple[int, int]] = set()
+
+        for chunk_text, char_offset in chunks:
+            for ent in self._run_ner(chunk_text):
+                orig_start = ent["start"] + char_offset
+                orig_end   = ent["end"]   + char_offset
+                span_key   = (orig_start, orig_end)
+                if span_key not in seen_spans:
+                    seen_spans.add(span_key)
+                    merged_ner.append({**ent, "start": orig_start, "end": orig_end})
+
+        return self._build_result(text, merged_ner)
+
+    def _aggregate_bio_tokens(self, tokens: list[dict], text: str) -> list[dict]:
+        """
+        Merge raw BIO token dicts into entity-group dicts.
+
+        Quantized ONNX models sometimes emit I- tokens without a preceding B-
+        token, or hallucinate a new B- token mid-word (a known INT8 artifact).
+        This aggregator robustly merges any adjacent/overlapping tokens of the
+        same label into a single span, and walks back to word boundaries to
+        ensure no part of the surface form is lost.
+        """
+        if not tokens:
+            return []
+
+        groups: list[dict] = []
+        current: dict | None = None
+
+        for tok in tokens:
+            raw_label = tok["entity"]          # e.g. "B-Medication" / "I-Medication"
+            bio, _, label = raw_label.partition("-")
+            if not label:
+                label, bio = bio, "B"
+
+            # Merge if the label is the same and the token is contiguous or overlapping
+            # with the current span, regardless of whether it's a B- or I- tag.
+            is_contiguous = current is not None and label == current["_label"] and tok["start"] <= current["end"]
+
+            if not is_contiguous:
+                if current is not None:
+                    # Before saving, expand forward to the end of the word in case
+                    # suffix tokens were dropped (predicted O) by the model.
+                    end_idx = current["end"]
+                    while end_idx < len(text) and (text[end_idx].isalnum() or text[end_idx] == '-'):
+                        end_idx += 1
+                    current["end"] = end_idx
+                    groups.append(current)
+
+                start = tok["start"]
+                # Walk back to the start of the word if this is a continuation subword.
+                # Stop at space or punctuation (except internal hyphens which are common in drugs).
+                while start > 0 and (text[start - 1].isalnum() or text[start - 1] == '-'):
+                    start -= 1
+                current = {
+                    "entity_group": label,
+                    "score": tok["score"],
+                    "start": start,
+                    "end": tok["end"],
+                    "_label": label,
+                }
+            else:
+                # Continuation — extend the span.
+                current["end"] = max(current["end"], tok["end"])
+                current["score"] = min(current["score"], tok["score"])
+
+        if current is not None:
+            end_idx = current["end"]
+            while end_idx < len(text) and (text[end_idx].isalnum() or text[end_idx] == '-'):
+                end_idx += 1
+            current["end"] = end_idx
+            groups.append(current)
+
+        return groups
+
+    def _run_ner(self, text: str) -> list[dict]:
+        """Run the NER pipeline and normalise output to entity_group dicts."""
+        raw = self._ner(text)
+        if self._raw_bio:
+            return self._aggregate_bio_tokens(raw, text)
+        return raw
 
     def extract_batch(
         self, texts: list[str], batch_size: int = 64
     ) -> list[ExtractionResult]:
         """
-        Batch extraction using HuggingFace pipeline batching.
-
-        The transformers pipeline with a list of inputs returns a list of lists
-        (one list of entity dicts per input text).
+        Batch extraction. Each text is chunked independently so that long
+        narratives do not exceed the model's context window.
         """
-        all_ner = self._ner(texts, batch_size=batch_size)
-        if texts and not isinstance(all_ner[0], list):
-            # Single-text edge case — wrap so zip works
-            all_ner = [all_ner]
-        return [self._build_result(t, ents) for t, ents in zip(texts, all_ner)]
+        return [self.extract(t) for t in texts]
+
 
     def _build_result(self, text: str, ner_output: list[dict]) -> ExtractionResult:
         # Run through the blank pipeline (sentencizer sets boundaries for ConText).
