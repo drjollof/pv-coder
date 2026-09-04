@@ -24,6 +24,37 @@ class PDFReportGenerator(FPDF):
         self.set_margins(left=15, top=15, right=15)
         self.add_page()
 
+    def safe_str(self, text):
+        if not isinstance(text, str):
+            text = str(text)
+        # Replace common smart quotes and dashes for cleaner output before falling back to ?
+        text = text.replace('‘', "'").replace('’', "'").replace('“', '"').replace('”', '"').replace('—', '-').replace('–', '-')
+        return text.encode('latin-1', 'replace').decode('latin-1')
+
+    def cell(self, *args, **kwargs):
+        # fpdf2 cell signature: cell(w, h=None, text='', border=0, ln='DEPRECATED', align='', fill=False, link='')
+        # Since arguments can be positional, it's safer to intercept text if it's the 3rd arg or named 'txt'/'text'
+        if 'txt' in kwargs:
+            kwargs['txt'] = self.safe_str(kwargs['txt'])
+        elif 'text' in kwargs:
+            kwargs['text'] = self.safe_str(kwargs['text'])
+        elif len(args) > 2:
+            args = list(args)
+            args[2] = self.safe_str(args[2])
+            args = tuple(args)
+        super().cell(*args, **kwargs)
+
+    def multi_cell(self, *args, **kwargs):
+        if 'txt' in kwargs:
+            kwargs['txt'] = self.safe_str(kwargs['txt'])
+        elif 'text' in kwargs:
+            kwargs['text'] = self.safe_str(kwargs['text'])
+        elif len(args) > 2:
+            args = list(args)
+            args[2] = self.safe_str(args[2])
+            args = tuple(args)
+        super().multi_cell(*args, **kwargs)
+
     def header(self):
         # Left side
         self.set_font("Arial", 'B', 9)
@@ -162,11 +193,9 @@ class PDFReportGenerator(FPDF):
         self.set_fill_color(*C_SURFACE)
         self.set_draw_color(*C_BORDER)
         
-        safe_narrative = self.case.narrative.encode('latin-1', 'replace').decode('latin-1')
-        
         self.set_font("Arial", '', 10)
         self.set_text_color(*C_CHARCOAL)
-        self.multi_cell(0, 6, safe_narrative, border=1, fill=True)
+        self.multi_cell(0, 6, self.case.narrative, border=1, fill=True)
         
         self.ln(6)
 
@@ -284,4 +313,4 @@ def generate_pdf_report(case: PharmacovigilanceCase) -> bytes:
     pdf.render_clinical_narrative()
     pdf.render_adverse_events()
     pdf.render_processing_summary()
-    return pdf.output(dest='S')
+    return bytes(pdf.output())
