@@ -159,10 +159,6 @@ class ExtractionPipeline:
         self._nlp = spacy.blank("en")
         self._nlp.add_pipe("sentencizer")
 
-        # True when the pipeline returns raw per-token dicts (aggregation_strategy=None)
-        # rather than pre-grouped entity_group dicts.
-        self._raw_bio = getattr(self._ner, 'aggregation_strategy', None) is None
-
     # DistilBERT max is 512 tokens; leave headroom for special tokens and
     # subword expansion (each word can split into 2-3 pieces).
     _MAX_CHUNK_TOKENS: int = 400
@@ -299,9 +295,13 @@ class ExtractionPipeline:
     def _run_ner(self, text: str) -> list[dict]:
         """Run the NER pipeline and normalise output to entity_group dicts."""
         raw = self._ner(text)
-        if self._raw_bio:
-            return self._aggregate_bio_tokens(raw, text)
-        return raw
+        if not raw:
+            return raw
+        # If the output already has 'entity_group', it was aggregated by the pipeline
+        if "entity_group" in raw[0]:
+            return raw
+        # Otherwise it's raw BIO tokens (e.g. from the ONNX quantized model)
+        return self._aggregate_bio_tokens(raw, text)
 
     def extract_batch(
         self, texts: list[str], batch_size: int = 64
