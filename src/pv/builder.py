@@ -115,25 +115,62 @@ class CaseBuilder:
                 meddra_pt, meddra_pt_id, conf = "Unknown", "Unknown", 0.0
 
             suspected_drugs = []
+            drug_relationships = {}
+
             seen_drugs = set()
-            for d in ae.drugs:
+
+            for relation in ae.relations:
+
+                d = relation.drug
+
                 d_key = d.text.lower().strip()
+
                 if d_key in seen_drugs:
                     continue
+
                 seen_drugs.add(d_key)
+
                 norm_dict = self.drug_normalizer.normalize(d.text)
-                attrs = self.drug_attr_extractor.extract_for_drug(d.end_char, narrative)
-                suspected_drugs.append(ExtractedDrug(
-                    text=d.text,
-                    start_char=d.start_char + offset if d.start_char is not None else None,
-                    end_char=d.end_char + offset if d.end_char is not None else None,
-                    canonical_name=norm_dict.get('canonical_name') if norm_dict else None,
-                    identifiers=norm_dict.get('identifiers') if norm_dict else None,
-                    dose=attrs.get("dose"),
-                    frequency=attrs.get("frequency"),
-                    route=attrs.get("route"),
-                    source_version=current_version
-                ))
+
+                attrs = self.drug_attr_extractor.extract_for_drug(
+                    d.end_char,
+                    narrative,
+                )
+
+                suspected_drugs.append(
+                    ExtractedDrug(
+                        text=d.text,
+                        start_char=(
+                            d.start_char + offset
+                            if d.start_char is not None
+                            else None
+                        ),
+                        end_char=(
+                            d.end_char + offset
+                            if d.end_char is not None
+                            else None
+                        ),
+                        canonical_name=(
+                            norm_dict.get("canonical_name")
+                            if norm_dict
+                            else None
+                        ),
+                        identifiers=(
+                            norm_dict.get("identifiers")
+                            if norm_dict
+                            else None
+                        ),
+                        dose=attrs.get("dose"),
+                        frequency=attrs.get("frequency"),
+                        route=attrs.get("route"),
+                        source_version=current_version,
+                    )
+                )
+
+                drug_relationships[d_key] = {
+                    "relation_level": relation.level.name,
+                    "evidence": relation.evidence,
+                }
 
             is_serious, seriousness_reason, seriousness_evidence = self.seriousness.is_serious(ae.effect.text, narrative)
 
@@ -150,6 +187,7 @@ class CaseBuilder:
                 review_status=review_status,
                 top_candidates=top_candidates,
                 suspected_drugs=suspected_drugs,
+                drug_relationships=drug_relationships,
                 is_serious=is_serious,
                 seriousness_reason=seriousness_reason,
                 seriousness_evidence=seriousness_evidence,

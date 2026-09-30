@@ -344,11 +344,28 @@ class ExtractionPipeline:
         spans = []
 
         for ent in ner_output:
-            raw_group = ent.get("entity_group", ent.get("entity", ""))
+            raw_group = ent.get("entity_group",ent.get("entity", ""),)
 
-            
-            group = raw_group.upper().lstrip("BI-").replace("-", "_").replace(" ", "_")
+            raw_group = str(raw_group).upper().strip()
+
+            # Remove an actual BIO prefix only.
+            #
+            # Do NOT use:
+            #     raw_group.lstrip("BI-")
+            #
+            # because str.lstrip() removes any matching characters rather than
+            # removing the exact prefix "B-" or "I-".
+            if raw_group.startswith("B-") or raw_group.startswith("I-"):
+                raw_group = raw_group[2:]
+
+            group = (
+                raw_group
+                .replace("-", "_")
+                .replace(" ", "_")
+            )
+
             label = _GROUP_TO_ROLE.get(group)
+            
             if label is None:
                 continue
 
