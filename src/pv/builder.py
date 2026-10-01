@@ -56,6 +56,68 @@ class CaseBuilder:
         
         self.meddra_version = "27.0 (Default)" 
 
+    def _reconcile_follow_up_events(self, previous_events, current_events):
+        """
+        Conservatively reconcile follow-up events with events from the
+        previous case version.
+
+        Merge only when:
+        - The MedDRA PT ID matches.
+        - The follow-up supplies an outcome.
+        - Drug relationships do not conflict.
+
+        Outcome-only updates are merged only when there is exactly one
+        matching previous event. Ambiguous or unmatched events are preserved.
+        """
+        from copy import deepcopy
+
+        reconciled = deepcopy(list(previous_events))
+        unmatched_current = []
+
+        for current in current_events:
+            matching_events = [
+                previous
+                for previous in reconciled
+                if previous.meddra_pt_id == current.meddra_pt_id
+            ]
+
+            # Without an outcome, this method has no update to apply.
+            if not current.outcome:
+                unmatched_current.append(deepcopy(current))
+                continue
+
+            current_drugs = {
+                drug.text.strip().casefold()
+                for drug in current.suspected_drugs
+            }
+
+            # Outcome-only update: merge only if the matching event is unique.
+            if not current_drugs:
+                if len(matching_events) == 1:
+                    matching_events[0].outcome = current.outcome
+                else:
+                    unmatched_current.append(deepcopy(current))
+                continue
+
+            # Drug-linked update: require a unique matching event and
+            # an overlap in the associated drugs.
+            if len(matching_events) == 1:
+                previous = matching_events[0]
+
+                previous_drugs = {
+                    drug.text.strip().casefold()
+                    for drug in previous.suspected_drugs
+                }
+
+                if previous_drugs.intersection(current_drugs):
+                    previous.outcome = current.outcome
+                    continue
+
+            # New, conflicting, or ambiguous events must not be discarded.
+            unmatched_current.append(deepcopy(current))
+
+        return reconciled + unmatched_current
+
     def process(self, narrative: str, case_id: str, previous_case_dict: Optional[dict] = None) -> PharmacovigilanceCase:
         """
         Processes a raw clinical narrative into a structured PharmacovigilanceCase.
@@ -224,10 +286,11 @@ class CaseBuilder:
         # Merge with previous case if provided
         final_narrative = narrative
         if prev_case:
-            final_narrative = prev_case.narrative + "\n\n--- FOLLOW-UP ---\n\n" + narrative
-            normalized_events = prev_case.events + normalized_events
+            final_narrative = (prev_case.narrative + "\n\n--- FOLLOW-UP ---\n\n"+ narrative)
+            normalized_events = self._reconcile_follow_up_events(prev_case.events,normalized_events,)
             extracted_drugs = prev_case.extracted_drugs + extracted_drugs
             excluded_findings = prev_case.excluded_findings + excluded_findings
+            
             if prev_case.demographics and not demographics:
                 demographics = prev_case.demographics
 
@@ -235,6 +298,7 @@ class CaseBuilder:
         is_serious_case = False
         case_seriousness_reason = None
         case_seriousness_evidence = None
+
         for e in normalized_events:
             if e.is_serious:
                 is_serious_case = True

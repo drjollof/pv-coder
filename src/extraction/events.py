@@ -66,9 +66,14 @@ class EventBuilder:
     """
     Constructs pharmacovigilance events using event-local evidence.
 
-    The previous implementation linked every extracted drug to every
-    extracted adverse event. This implementation only creates a drug-event
-    relationship when the surrounding text provides evidence for it.
+    The implementation deliberately separates:
+        1. adverse-event identification,
+        2. drug-event relationship,
+        3. causality,
+        4. outcome.
+
+    This prevents outcome language such as "the rash improved"
+    from turning an adverse event into a therapeutic event.
     """
 
     # ------------------------------------------------------------------
@@ -90,15 +95,6 @@ class EventBuilder:
         ),
         re.compile(
             r"\bsecondary\s+to\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bfollowing\s+(?:administration|infusion|treatment|therapy)"
-            r"\s+of\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bafter\s+(?:taking|receiving|starting|initiating)\b",
             re.IGNORECASE,
         ),
     ]
@@ -125,7 +121,6 @@ class EventBuilder:
             r"\btreated\s+with\b",
             re.IGNORECASE,
         ),
-
         re.compile(
             r"\bafter\b",
             re.IGNORECASE,
@@ -163,6 +158,12 @@ class EventBuilder:
     # Therapeutic event detection
     # ------------------------------------------------------------------
 
+    # IMPORTANT:
+    # "improved", "resolved", etc. are outcome terms and must NOT by
+    # themselves classify an adverse event as therapeutic.
+    #
+    # Therapeutic classification therefore relies on language indicating
+    # that the therapeutic response itself is the event being described.
     THERAPEUTIC_PATTERNS = [
         re.compile(
             r"\bbeneficial\s+in\b",
@@ -173,19 +174,15 @@ class EventBuilder:
             re.IGNORECASE,
         ),
         re.compile(
-            r"\bresolved\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bimproved\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bcured\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
             r"\beffective\s+for\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\bresponded\s+to\s+treatment\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\btherapeutic\s+response\b",
             re.IGNORECASE,
         ),
     ]
@@ -247,8 +244,11 @@ class EventBuilder:
         ),
     ]
 
-    # Sentence boundaries are deliberately conservative.
-    _SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+")
+    # Sentence boundaries include normal punctuation and explicit
+    # follow-up separators/newlines used by the case-version workflow.
+    _SENTENCE_PATTERN = re.compile(
+        r"(?<=[.!?])\s+|(?:\r?\n)+"
+    )
 
     def build(
         self,
@@ -328,11 +328,15 @@ class EventBuilder:
 
         for effect in effects:
 
-            sentence_text = self._sentence_for_entity(effect, text)
+            sentence_text = self._sentence_for_entity(
+                effect,
+                text,
+            )
 
-            is_therapeutic = any(
-                pattern.search(sentence_text)
-                for pattern in self.THERAPEUTIC_PATTERNS
+            is_therapeutic = self._is_therapeutic_event(
+                effect,
+                sentence_text,
+                text,
             )
 
             event_type = (
@@ -352,8 +356,6 @@ class EventBuilder:
                     text,
                 )
 
-                # NONE means there is no evidence to call the drug a
-                # suspected drug for this event.
                 if level == RelationLevel.NONE:
                     continue
 
@@ -407,10 +409,51 @@ class EventBuilder:
         return events, excluded_findings
 
     # ==================================================================
+    # Therapeutic event logic
+    # ==================================================================
+
+    def _is_therapeutic_event(
+        self,
+        effect: ExtractedEntity,
+        sentence_text: str,
+        text: str,
+    ) -> bool:
+        """
+        Determine whether the extracted finding represents a therapeutic
+        event rather than an adverse event.
+
+        Outcome language such as:
+            "rash improved"
+            "headache resolved"
+            "pain persisted"
+
+        describes the course of an adverse event and must not itself
+        convert that event into a therapeutic event.
+
+        Therapeutic classification therefore requires an explicit
+        treatment-response construction.
+        """
+
+        # Outcome terms alone are never sufficient.
+        if re.search(
+            r"\b(?:improved|resolved|persisted)\b",
+            sentence_text,
+            re.IGNORECASE,
+        ):
+            return any(
+                pattern.search(sentence_text)
+                for pattern in self.THERAPEUTIC_PATTERNS
+            )
+
+        return any(
+            pattern.search(sentence_text)
+            for pattern in self.THERAPEUTIC_PATTERNS
+        )
+
+    # ==================================================================
     # Relationship logic
     # ==================================================================
 
-    
     def _determine_relation(
         self,
         drug: ExtractedEntity,
@@ -428,10 +471,12 @@ class EventBuilder:
             return RelationLevel.NONE, None
 
         drug_sentence = self._sentence_bounds(
-            drug.start_char, text
+            drug.start_char,
+            text,
         )
         effect_sentence = self._sentence_bounds(
-            effect.start_char, text
+            effect.start_char,
+            text,
         )
 
         # Sentence proximity alone is insufficient evidence.
@@ -439,15 +484,20 @@ class EventBuilder:
             return RelationLevel.NONE, None
 
         sentence_start, sentence_end = drug_sentence
-        sentence = text[sentence_start:sentence_end]
 
         # Text between the two candidate entities.
         if drug.end_char <= effect.start_char:
-            between = text[drug.end_char:effect.start_char]
+            between = text[
+                drug.end_char:effect.start_char
+            ]
             drug_precedes_effect = True
+
         elif effect.end_char <= drug.start_char:
-            between = text[effect.end_char:drug.start_char]
+            between = text[
+                effect.end_char:drug.start_char
+            ]
             drug_precedes_effect = False
+
         else:
             return RelationLevel.NONE, None
 
@@ -465,10 +515,16 @@ class EventBuilder:
 
         for pattern in causal_patterns:
             match = re.search(
-                pattern, between, re.IGNORECASE
+                pattern,
+                between,
+                re.IGNORECASE,
             )
+
             if match:
-                return RelationLevel.EXPLICIT, match.group(0)
+                return (
+                    RelationLevel.EXPLICIT,
+                    match.group(0),
+                )
 
         # Drug-name compounds, e.g. methotrexate-induced
         # hepatotoxicity.
@@ -476,6 +532,7 @@ class EventBuilder:
             drug_to_effect = text[
                 drug.end_char:effect.start_char
             ]
+
             if re.match(
                 r"^\s*-\s*(?:induced|associated)\b",
                 drug_to_effect,
@@ -495,29 +552,32 @@ class EventBuilder:
                 between,
                 re.IGNORECASE,
             )
-            return RelationLevel.EXPLICIT, match.group(0)
+
+            return (
+                RelationLevel.EXPLICIT,
+                match.group(0),
+            )
 
         # --------------------------------------------------
         # 2. Local temporal association
         # --------------------------------------------------
 
-        # Examine only the text immediately preceding the
-        # candidate drug, within its current sentence.
         prefix_start = max(
             sentence_start,
             drug.start_char - 100,
         )
-        drug_prefix = text[prefix_start:drug.start_char]
 
-        # The trigger must be directly connected to this drug:
-        # "after taking aspirin"
-        # "three days after starting amoxicillin"
-        # "following treatment with penicillin"
+        drug_prefix = text[
+            prefix_start:drug.start_char
+        ]
+
         temporal_prefix_patterns = (
             r"\b(?:after|following)\s+"
             r"(?:taking|starting|receiving|initiating)\s*$",
+
             r"\b(?:after|following)\s+"
             r"(?:administration\s+of|treatment\s+with)\s*$",
+
             r"\b(?:after|following)\s*$",
         )
 
@@ -527,6 +587,7 @@ class EventBuilder:
                 drug_prefix,
                 re.IGNORECASE,
             )
+
             if match:
                 return (
                     RelationLevel.EVENT_ASSOCIATION,
@@ -551,11 +612,9 @@ class EventBuilder:
         )
 
         pre_text = text[
-            sentence_start:
-            disease.start_char
+            sentence_start:disease.start_char
         ]
 
-        # Only inspect the local clause immediately before the finding.
         local_pre = pre_text[-80:]
 
         return any(
@@ -595,7 +654,6 @@ class EventBuilder:
                 ),
             )
 
-        # Do not pull an indication from an unrelated sentence.
         return None
 
     # ==================================================================
@@ -626,17 +684,19 @@ class EventBuilder:
     # ==================================================================
 
     def _extract_local_outcome(
-    self,
-    effect: ExtractedEntity,
-    text: str,
-) -> Optional[str]:
+        self,
+        effect: ExtractedEntity,
+        text: str,
+    ) -> Optional[str]:
 
         sentence_start, sentence_end = self._sentence_bounds(
             effect.start_char,
             text,
         )
 
-        sentence = text[sentence_start:sentence_end]
+        sentence = text[
+            sentence_start:sentence_end
+        ]
 
         # First, check the sentence containing the adverse event.
         for pattern in self.OUTCOME_PATTERNS:
@@ -646,36 +706,31 @@ class EventBuilder:
                 return match.group(1).strip()
 
         # If no outcome is found, inspect the immediately following
-        # sentence. Do not attach an outcome unless that sentence
+        # sentence. The outcome is attached only if that sentence
         # explicitly refers back to the same effect.
         next_text = text[sentence_end:]
 
-        boundary = self._SENTENCE_PATTERN.search(next_text)
-
-        if boundary:
-            next_sentence_start = boundary.end()
-            next_boundary = self._SENTENCE_PATTERN.search(
-                next_text,
-                next_sentence_start,
-            )
-
-            if next_boundary:
-                next_sentence = next_text[
-                    next_sentence_start:next_boundary.start()
-                ].strip()
-            else:
-                next_sentence = next_text[
-                    next_sentence_start:
-                ].strip()
-        else:
-            next_sentence = next_text.strip()
-
-        if not next_sentence:
+        if not next_text.strip():
             return None
+
+        # Split the remaining text into logical sentences/segments.
+        segments = [
+            segment.strip()
+            for segment in self._SENTENCE_PATTERN.split(
+                next_text
+            )
+            if segment.strip()
+        ]
+
+        if not segments:
+            return None
+
+        next_sentence = segments[0]
 
         # Require an explicit reference to this effect:
         # "The rash improved..."
         # "This rash resolved..."
+        # "That rash persisted..."
         effect_reference = re.search(
             rf"\b(?:the|this|that)\s+"
             rf"{re.escape(effect.text)}\b",
@@ -693,6 +748,7 @@ class EventBuilder:
                 return match.group(1).strip()
 
         return None
+
     # ==================================================================
     # Event consolidation
     # ==================================================================
@@ -738,13 +794,14 @@ class EventBuilder:
             # events.
             if same_text and distance <= 160:
 
-                # Do not consolidate across an explicit historical marker.
                 between = text[
                     previous.end_char:
                     effect.start_char
                 ]
 
-                if not self._contains_historical_marker(between):
+                if not self._contains_historical_marker(
+                    between
+                ):
                     continue
 
             consolidated.append(effect)
@@ -764,23 +821,65 @@ class EventBuilder:
         start = 0
         end = len(text)
 
-        left = list(
+        # Normal punctuation boundaries.
+        left_punctuation = list(
             re.finditer(
                 r"[.!?]",
                 text[:char_pos],
             )
         )
 
-        if left:
-            start = left[-1].end()
+        # Newline boundaries are important for follow-up narratives
+        # and records where sentences do not end in punctuation.
+        left_newline = list(
+            re.finditer(
+                r"\r?\n",
+                text[:char_pos],
+            )
+        )
 
-        right = re.search(
+        if left_punctuation or left_newline:
+            candidates = []
+
+            if left_punctuation:
+                candidates.append(
+                    left_punctuation[-1].end()
+                )
+
+            if left_newline:
+                candidates.append(
+                    left_newline[-1].end()
+                )
+
+            start = max(candidates)
+
+        right_candidates = []
+
+        right_punctuation = re.search(
             r"[.!?]",
             text[char_pos:],
         )
 
-        if right:
-            end = char_pos + right.start() + 1
+        if right_punctuation:
+            right_candidates.append(
+                char_pos
+                + right_punctuation.start()
+                + 1
+            )
+
+        right_newline = re.search(
+            r"\r?\n",
+            text[char_pos:],
+        )
+
+        if right_newline:
+            right_candidates.append(
+                char_pos
+                + right_newline.start()
+            )
+
+        if right_candidates:
+            end = min(right_candidates)
 
         return start, end
 
