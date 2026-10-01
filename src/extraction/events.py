@@ -262,7 +262,7 @@ class EventBuilder:
         excluded_findings: list[dict] = []
 
         # --------------------------------------------------------------
-        # 1. Separate usable findings from excluded findings
+        # Separate usable findings from excluded findings
         # --------------------------------------------------------------
 
         for disease in result.diseases:
@@ -317,13 +317,13 @@ class EventBuilder:
                 effects.append(disease)
 
         # --------------------------------------------------------------
-        # 2. Consolidate repeated mentions of the same current event
+        # Consolidate repeated mentions of the same current event
         # --------------------------------------------------------------
 
         effects = self._consolidate_effects(effects, text)
 
         # --------------------------------------------------------------
-        # 3. Build one event per clinically meaningful effect
+        # Build one event per clinically meaningful effect
         # --------------------------------------------------------------
 
         for effect in effects:
@@ -502,7 +502,7 @@ class EventBuilder:
             return RelationLevel.NONE, None
 
         # --------------------------------------------------
-        # 1. Explicit causal evidence
+        # Explicit causal evidence
         # --------------------------------------------------
 
         causal_patterns = (
@@ -559,7 +559,7 @@ class EventBuilder:
             )
 
         # --------------------------------------------------
-        # 2. Local temporal association
+        # Local temporal association
         # --------------------------------------------------
 
         prefix_start = max(
