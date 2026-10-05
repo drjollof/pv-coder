@@ -1,72 +1,76 @@
 """
-Clinical/PV entity extraction pipeline — EXPERIMENTAL HuggingFace NER backend.
+Clinical/PV entity extraction pipeline — HuggingFace NER backend.
 
 Default model: d4data/biomedical-ner-all
-This is an experimental replacement for en_ner_bc5cdr_md, adopted due to a
-three-way incompatibility between spaCy 3.7, pydantic >=2, and Python 3.12.
-Equivalence to en_ner_bc5cdr_md has NOT been established; the PHEE dev
-evaluation in scripts/run_extraction_eval.py is the empirical basis for
-any quality judgment.
+
+The production and local ONNX paths both use Hugging Face's
+aggregation_strategy="first" so that subword token predictions are
+reconstructed using the tokenizer's word-boundary information rather than
+custom BIO heuristics.
 
 Model label space (d4data/biomedical-ner-all — BioNLP13CG schema):
     Medication        → DRUG role
-    Disease_disorder  → DISEASE role (background diagnoses, disorders)
-    Sign_symptom      → DISEASE role (symptoms — most common AE presentation)
-    Clinical_event    → DISEASE role (clinical events such as hospitalisations)
-    All other labels are ignored at this stage.
+    Disease_disorder  → DISEASE role
+    Sign_symptom      → DISEASE role
+    Clinical_event    → DISEASE role
 
-Why DISEASE and not ADVERSE_EVENT:
-    Whether a detected Disease_disorder or Sign_symptom span is an adverse
-    event requires event-structure and context logic that is downstream of
-    entity recognition. This module only detects spans; classification is
-    the responsibility of ContextFilter and pv.case_schema.
+All other labels are ignored at this stage.
 
-
-Explicit mapping from model entity_group → internal role.
-Keys are the uppercased entity_group strings returned by the transformers
-pipeline with aggregation_strategy="simple" (i.e., the BIO prefix is stripped).
-
-Blank spaCy pipeline used only to create Doc containers for ConText.
-The sentencizer is required because MedSpaCy ConText uses sentence 
-boundaries to scope modifier propagation.
-
-
-DistilBERT max is 512 tokens; leave headroom for special tokens and
-subword expansion (each word can split into 2-3 pieces).
+Whether a detected Disease_disorder or Sign_symptom span represents an
+adverse event is determined downstream by event/context logic.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 import spacy
-from spacy.util import filter_spans
 from spacy.tokens import Doc
-
+from spacy.util import filter_spans
 
 
 _GROUP_TO_ROLE: dict[str, str] = {
-    "MEDICATION":       "DRUG",
+    "MEDICATION": "DRUG",
     "DISEASE_DISORDER": "DISEASE",
-    "SIGN_SYMPTOM":     "DISEASE",
-    "CLINICAL_EVENT":   "DISEASE",
+    "SIGN_SYMPTOM": "DISEASE",
+    "CLINICAL_EVENT": "DISEASE",
 }
+
 
 
 @dataclass(frozen=True)
 class ExtractedEntity:
     """
-    One detected entity span with its context classification flags.
+    One detected entity span with its original NER semantics and
+    downstream context classification.
 
-    Context flags default to False. ContextFilter populates them by running
-    MedSpaCy ConText on the parent Doc. Callers must not set them manually.
+    `label` is the application's normalized role:
+        DRUG / DISEASE
+
+    `raw_label` preserves the model's original biomedical class:
+        MEDICATION
+        DISEASE_DISORDER
+        SIGN_SYMPTOM
+        CLINICAL_EVENT
+        etc.
+
+    `ner_score` preserves the model confidence for the span.
+
+    Keeping both representations allows downstream event logic to reason
+    about semantic distinctions that would otherwise be lost when several
+    biomedical classes are collapsed into the same application role.
     """
 
     text: str
-    label: str        
+    label: str
     start_char: int
     end_char: int
+
+    raw_label: str = ""
+    ner_score: float = 0.0
+
     negated: bool = False
     historical: bool = False
     hypothetical: bool = False
@@ -83,16 +87,21 @@ class ExtractedEntity:
         )
 
 
+
 @dataclass
 class ExtractionResult:
     """
     Structured output for a single input text.
 
-    drugs    — spans whose entity group maps to DRUG
-    diseases — spans whose entity group maps to DISEASE;
-               includes AE candidates and background conditions
-    doc      — spaCy Doc with ents set (required by ContextFilter)
-    Current-context disease candidates — not yet classified as AE vs. indication.
+    drugs:
+        Spans whose entity group maps to DRUG.
+
+    diseases:
+        Spans whose entity group maps to DISEASE. This includes both potential
+        adverse events and background conditions.
+
+    doc:
+        spaCy Doc with extracted spans assigned to doc.ents.
     """
 
     drugs: list[ExtractedEntity] = field(default_factory=list)
@@ -111,100 +120,151 @@ class ExtractionResult:
 
 class ExtractionPipeline:
     """
-    NER-based entity extraction backed by a HuggingFace token-classification model.
+    NER-based entity extraction backed by a HuggingFace token-classification
+    model.
 
-    The pipeline loads once at construction and is reused across calls. A spaCy
-    blank pipeline is used only to create Doc objects so that MedSpaCy ConText
-    can operate on the extracted spans.
+    The model is loaded once during construction and reused.
 
-    Use absolute path based on repository root.
+    Local development:
+        Uses the repository's quantized ONNX model when available.
+
+    Production / HF Space:
+        Uses the configured HuggingFace model directly.
+
+    Both paths deliberately use:
+        aggregation_strategy="first"
+
+    This keeps subword aggregation consistent between local and production
+    inference and avoids custom reconstruction of BIO tokens.
     """
 
     DEFAULT_MODEL = "d4data/biomedical-ner-all"
-    
-    
-    from pathlib import Path
+
     _ROOT = Path(__file__).parent.parent.parent
     ONNX_MODEL_DIR = str(_ROOT / "models" / "ner_onnx_quantized")
 
+    _MAX_CHUNK_TOKENS: int = 400
+
     def __init__(self, model: str = DEFAULT_MODEL) -> None:
-        from pathlib import Path
         try:
-            from transformers import pipeline as hf_pipeline, Pipeline, AutoTokenizer
+            from transformers import AutoTokenizer, Pipeline, pipeline as hf_pipeline
             from optimum.onnxruntime import ORTModelForTokenClassification
         except ImportError as exc:
             raise ImportError(
                 "transformers/optimum is required for entity extraction. "
                 "Install with: pip install transformers optimum[onnxruntime]"
             ) from exc
-            
+
         import os
+
         if Path(self.ONNX_MODEL_DIR).exists() and not os.environ.get("SPACE_ID"):
             try:
-                print(f"Loading optimized ONNX NER model from {self.ONNX_MODEL_DIR}...", flush=True)
-                tokenizer = AutoTokenizer.from_pretrained(self.ONNX_MODEL_DIR)
-                model_onnx = ORTModelForTokenClassification.from_pretrained(self.ONNX_MODEL_DIR)
+                print(
+                    f"Loading optimized ONNX NER model from "
+                    f"{self.ONNX_MODEL_DIR}...",
+                    flush=True,
+                )
+
+                tokenizer = AutoTokenizer.from_pretrained(
+                    self.ONNX_MODEL_DIR
+                )
+
+                model_onnx = ORTModelForTokenClassification.from_pretrained(
+                    self.ONNX_MODEL_DIR
+                )
+
                 self._ner = hf_pipeline(
                     "ner",
                     model=model_onnx,
                     tokenizer=tokenizer,
-                    aggregation_strategy=None
+                    aggregation_strategy="first",
                 )
-            except Exception as e:
-                print(f"ONNX NER load warning: {e}. Falling back to native model: {model}...", flush=True)
+
+            except Exception as exc:
+                print(
+                    f"ONNX NER load warning: {exc}. "
+                    f"Falling back to native model: {model}...",
+                    flush=True,
+                )
+
                 self._ner = hf_pipeline(
                     "ner",
                     model=model,
-                    aggregation_strategy="first"
+                    aggregation_strategy="first",
                 )
+
         else:
-            print(f"Loading native PyTorch NER model: {model}...", flush=True)
+            print(
+                f"Loading native PyTorch NER model: {model}...",
+                flush=True,
+            )
+
             self._ner = hf_pipeline(
                 "ner",
                 model=model,
-                aggregation_strategy="first"
+                aggregation_strategy="first",
             )
-            
-        
+
+        # Blank spaCy pipeline is used only to create Doc containers for
+        # MedSpaCy ConText and sentence boundaries.
         self._nlp = spacy.blank("en")
         self._nlp.add_pipe("sentencizer")
 
-
-    _MAX_CHUNK_TOKENS: int = 400
-
     def _chunk_text(self, text: str) -> list[tuple[str, int]]:
         """
-        Split text into sentence-aligned chunks within the model's token budget.
+        Split text into sentence-aligned chunks within the model token budget.
 
-        Returns a list of (chunk_text, char_offset) pairs where char_offset is
-        the character position of that chunk's start in the original text.
-        Sentences that individually exceed the budget are passed as-is and let
-        the model handle truncation internally (degenerate edge case).
+        Returns:
+            List of (chunk_text, character_offset) pairs.
+
+        Sentence boundaries are preserved so that context-sensitive processing
+        remains meaningful. A single sentence exceeding the token budget is
+        passed through as-is as a degenerate edge case.
         """
+
         doc = self._nlp(text)
         sentences = list(doc.sents)
 
         chunks: list[tuple[str, int]] = []
         current_sents: list = []
-        current_token_count: int = 0
-        chunk_start: int = 0
+        current_token_count = 0
+        chunk_start = 0
 
         for sent in sentences:
-            token_count = len(self._ner.tokenizer.tokenize(sent.text))
+            token_count = len(
+                self._ner.tokenizer.tokenize(sent.text)
+            )
 
-            if current_sents and (current_token_count + token_count) > self._MAX_CHUNK_TOKENS:
+            if (
+                current_sents
+                and current_token_count + token_count > self._MAX_CHUNK_TOKENS
+            ):
                 chunk_end = current_sents[-1].end_char
-                chunks.append((text[chunk_start:chunk_end], chunk_start))
+
+                chunks.append(
+                    (
+                        text[chunk_start:chunk_end],
+                        chunk_start,
+                    )
+                )
+
                 chunk_start = sent.start_char
                 current_sents = [sent]
                 current_token_count = token_count
+
             else:
                 current_sents.append(sent)
                 current_token_count += token_count
 
         if current_sents:
             chunk_end = current_sents[-1].end_char
-            chunks.append((text[chunk_start:chunk_end], chunk_start))
+
+            chunks.append(
+                (
+                    text[chunk_start:chunk_end],
+                    chunk_start,
+                )
+            )
 
         return chunks or [(text, 0)]
 
@@ -212,149 +272,142 @@ class ExtractionPipeline:
         """
         Detect DRUG and DISEASE spans in a single text.
 
-        Long narratives are split into sentence-aligned token-safe chunks before
-        inference to prevent DistilBERT's 512-token limit from silently dropping
-        entity B- tags near the truncation boundary. Chunk-relative offsets are
-        remapped to original-text coordinates and duplicate spans are discarded.
+        Primary inference is performed on sentence-aligned chunks. A secondary
+        sentence-level recovery pass is then used to recover target entities that
+        may be missed when the same text is presented in a larger context.
 
-        Context flags on all returned entities are False. Pass the result
-        through ContextFilter to populate them.
+        Both passes use the same NER model and the same aggregation strategy.
+        The recovery pass does not assign event meaning; it only recovers candidate
+        entity spans for downstream context and event processing.
         """
-        chunks = self._chunk_text(text)
 
-        if len(chunks) == 1:
-            return self._build_result(text, self._run_ner(text))
+        chunks = self._chunk_text(text)
 
         merged_ner: list[dict] = []
         seen_spans: set[tuple[int, int]] = set()
 
+        # ------------------------------------------------------------------
+        # Pass 1: primary chunk-level inference
+        # ------------------------------------------------------------------
         for chunk_text, char_offset in chunks:
             for ent in self._run_ner(chunk_text):
                 orig_start = ent["start"] + char_offset
-                orig_end   = ent["end"]   + char_offset
-                span_key   = (orig_start, orig_end)
-                if span_key not in seen_spans:
-                    seen_spans.add(span_key)
-                    merged_ner.append({**ent, "start": orig_start, "end": orig_end})
+                orig_end = ent["end"] + char_offset
 
-        return self._build_result(text, merged_ner)
+                span_key = (orig_start, orig_end)
 
-    def _aggregate_bio_tokens(self, tokens: list[dict], text: str) -> list[dict]:
-        """
-        Merge raw BIO token dicts into entity-group dicts.
+                if span_key in seen_spans:
+                    continue
 
-        Quantized ONNX models sometimes emit I- tokens without a preceding B-
-        token, or hallucinate a new B- token mid-word (a known INT8 artifact).
-        This aggregator robustly merges any adjacent/overlapping tokens of the
-        same label into a single span, and walks back to word boundaries to
-        ensure no part of the surface form is lost.
+                seen_spans.add(span_key)
 
-        Merge if the label is the same and the token is contiguous or overlapping
-        with the current span, regardless of whether it's a B- or I- tag.
-        Before saving, expand forward to the end of the word in case
-        suffix tokens were dropped (predicted O) by the model.
+                merged_ner.append(
+                    {
+                        **ent,
+                        "start": orig_start,
+                        "end": orig_end,
+                    }
+                )
 
-        Walk back to the start of the word if this is a continuation subword.
-        Stop at space or punctuation (except internal hyphens which are common in drugs).
+        # ------------------------------------------------------------------
+        # Pass 2: sentence-level entity recovery
+        #
+        # Some biomedical NER predictions are context-sensitive. An entity that
+        # is recognized when its sentence is processed independently can be missed
+        # when the same sentence is embedded in a longer clinical narrative.
+        #
+        # We therefore run the same NER model on each sentence and merge only
+        # entity spans that were not already recovered by the primary pass.
+        # ------------------------------------------------------------------
+        doc = self._nlp(text)
 
-        Continuation — extend the span.
-        """
-        if not tokens:
-            return []
+        for sent in doc.sents:
+            sentence_text = sent.text
 
-        groups: list[dict] = []
-        current: dict | None = None
+            if not sentence_text.strip():
+                continue
 
-        for tok in tokens:
-            raw_label = tok["entity"]
-            bio, _, label = raw_label.partition("-")
-            if not label:
-                label, bio = bio, "B"
+            for ent in self._run_ner(sentence_text):
+                orig_start = ent["start"] + sent.start_char
+                orig_end = ent["end"] + sent.start_char
 
-            
-            is_contiguous = current is not None and label == current["_label"] and tok["start"] <= current["end"]
+                span_key = (orig_start, orig_end)
 
-            if not is_contiguous:
-                if current is not None:
-                    
-                    end_idx = current["end"]
-                    while end_idx < len(text) and (text[end_idx].isalnum() or text[end_idx] == '-'):
-                        end_idx += 1
-                    current["end"] = end_idx
-                    groups.append(current)
+                if span_key in seen_spans:
+                    continue
 
-                start = tok["start"]
-                
-                while start > 0 and (text[start - 1].isalnum() or text[start - 1] == '-'):
-                    start -= 1
-                current = {
-                    "entity_group": label,
-                    "score": tok["score"],
-                    "start": start,
-                    "end": tok["end"],
-                    "_label": label,
-                }
-            else:
-                
-                current["end"] = max(current["end"], tok["end"])
-                current["score"] = min(current["score"], tok["score"])
+                seen_spans.add(span_key)
 
-        if current is not None:
-            end_idx = current["end"]
-            while end_idx < len(text) and (text[end_idx].isalnum() or text[end_idx] == '-'):
-                end_idx += 1
-            current["end"] = end_idx
-            groups.append(current)
+                merged_ner.append(
+                    {
+                        **ent,
+                        "start": orig_start,
+                        "end": orig_end,
+                    }
+                )
 
-        return groups
+        return self._build_result(
+            text,
+            merged_ner,
+        )
 
     def _run_ner(self, text: str) -> list[dict]:
-        """Run the NER pipeline and normalise output to entity_group dicts.
-        If the output already has 'entity_group', it was aggregated by the pipeline.
-        Otherwise it's raw BIO tokens (from the ONNX quantized model).
         """
-        raw = self._ner(text)
-        if not raw:
-            return raw
-        
-        if "entity_group" in raw[0]:
-            return raw
-        
-        return self._aggregate_bio_tokens(raw, text)
+        Run NER and return HuggingFace-aggregated entity dictionaries.
+
+        aggregation_strategy="first" guarantees that normal WordPiece/subword
+        fragmentation is handled by the Transformers pipeline rather than
+        by custom BIO reconstruction.
+        """
+
+        return self._ner(text)
 
     def extract_batch(
-        self, texts: list[str], batch_size: int = 64
+        self,
+        texts: list[str],
+        batch_size: int = 64,
     ) -> list[ExtractionResult]:
         """
-        Batch extraction. Each text is chunked independently so that long
-        narratives do not exceed the model's context window.
-        """
-        return [self.extract(t) for t in texts]
+        Batch extraction.
 
+        Each text is independently chunked so that long narratives do not
+        exceed the model's context window.
 
-    def _build_result(self, text: str, ner_output: list[dict]) -> ExtractionResult:
+        batch_size is retained for API compatibility. The current implementation
+        processes each narrative independently because chunking occurs per text.
         """
-        Run through the blank pipeline (sentencizer sets boundaries for ConText).
-        Normalise to uppercase with underscores to match _GROUP_TO_ROLE keys.
-        aggregation_strategy="simple" strips BIO prefix; handle both cases.
+
+        return [self.extract(text) for text in texts]
+
+    def _build_result(
+        self,
+        text: str,
+        ner_output: list[dict],
+    ) -> ExtractionResult:
         """
-        doc     = self._nlp(text)
-        drugs:    list[ExtractedEntity] = []
+        Convert HuggingFace aggregated entities into internal ExtractedEntity
+        objects and a spaCy Doc.
+
+        HuggingFace's aggregation_strategy="first" returns entity_group
+        directly, so no BIO reconstruction is performed here.
+        """
+
+        doc = self._nlp(text)
+
+        drugs: list[ExtractedEntity] = []
         diseases: list[ExtractedEntity] = []
         spans = []
 
         for ent in ner_output:
-            raw_group = ent.get("entity_group",ent.get("entity", ""),)
+            raw_group = ent.get(
+                "entity_group",
+                ent.get("entity", ""),
+            )
 
             raw_group = str(raw_group).upper().strip()
 
-            # Remove an actual BIO prefix only.
-            #
-            # Do NOT use:
-            #     raw_group.lstrip("BI-")
-            #
-            # because str.lstrip() removes any matching characters rather than
-            # removing the exact prefix "B-" or "I-".
+            # Defensive handling in case a pipeline implementation still
+            # returns a BIO-prefixed label.
             if raw_group.startswith("B-") or raw_group.startswith("I-"):
                 raw_group = raw_group[2:]
 
@@ -365,28 +418,45 @@ class ExtractionPipeline:
             )
 
             label = _GROUP_TO_ROLE.get(group)
-            
+
             if label is None:
                 continue
 
-            start     = ent["start"]
-            end       = ent["end"]
+            start = int(ent["start"])
+            end = int(ent["end"])
+
             span_text = text[start:end]
 
-            span = doc.char_span(start, end, label=label, alignment_mode="expand")
+            span = doc.char_span(
+                start,
+                end,
+                label=label,
+                alignment_mode="expand",
+            )
+
             if span is not None:
                 spans.append(span)
 
+            
             entity = ExtractedEntity(
                 text=span_text,
                 label=label,
                 start_char=start,
                 end_char=end,
+                raw_label=group,
+                ner_score=float(ent.get("score", 0.0)),
             )
+
+
             if label == "DRUG":
                 drugs.append(entity)
             else:
                 diseases.append(entity)
 
         doc.set_ents(filter_spans(spans))
-        return ExtractionResult(drugs=drugs, diseases=diseases, doc=doc)
+
+        return ExtractionResult(
+            drugs=drugs,
+            diseases=diseases,
+            doc=doc,
+        )

@@ -18,18 +18,17 @@ class RelationLevel(Enum):
     Strength of evidence connecting a drug to an event.
 
     EXPLICIT:
-        Direct causal wording.
+        Direct causal wording or explicit causality assessment.
 
     EVENT_ASSOCIATION:
-        Strong event-structure relationship such as:
-        "after taking aspirin, developed rash."
+        A structured exposure/suspect-medication relationship.
 
     PROXIMITY:
         Entities are close but the text does not establish a
-        pharmacovigilance relationship.
+        meaningful pharmacovigilance relationship.
 
     NONE:
-        No meaningful relationship.
+        No defensible relationship.
     """
 
     EXPLICIT = 1
@@ -64,44 +63,28 @@ class PharmacovigilanceEvent:
 
 class EventBuilder:
     """
-    Constructs pharmacovigilance events using event-local evidence.
+    Constructs pharmacovigilance events from extracted entities.
 
-    The implementation deliberately separates:
-        1. adverse-event identification,
-        2. drug-event relationship,
-        3. causality,
-        4. outcome.
+    The relationship layer distinguishes:
 
-    This prevents outcome language such as "the rash improved"
-    from turning an adverse event into a therapeutic event.
+        1. clinical event identification,
+        2. drug exposure / event association,
+        3. explicit causal language,
+        4. explicit negative causality,
+        5. medication-role scope,
+        6. event consolidation.
+
+    This prevents simple drug/event co-occurrence from becoming
+    a pharmacovigilance relationship.
     """
 
-    # ------------------------------------------------------------------
-    # Explicit causal relationships
-    # ------------------------------------------------------------------
-
     EXPLICIT_PATTERNS = [
-        re.compile(
-            r"\binduced\s+by\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bdue\s+to\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bcaused\s+by\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bsecondary\s+to\b",
-            re.IGNORECASE,
-        ),
+        re.compile(r"\binduced\s+by\b", re.IGNORECASE),
+        re.compile(r"\bdue\s+to\b", re.IGNORECASE),
+        re.compile(r"\bcaused\s+by\b", re.IGNORECASE),
+        re.compile(r"\bsecondary\s+to\b", re.IGNORECASE),
+        re.compile(r"\battributable\s+to\b", re.IGNORECASE),
     ]
-
-    # ------------------------------------------------------------------
-    # Event-association patterns
-    # ------------------------------------------------------------------
 
     EVENT_ASSOCIATION_PATTERNS = [
         re.compile(
@@ -117,79 +100,25 @@ class EventBuilder:
             r"\b(?:following|subsequent\s+to)\b",
             re.IGNORECASE,
         ),
-        re.compile(
-            r"\btreated\s+with\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bafter\b",
-            re.IGNORECASE,
-        ),
+        re.compile(r"\btreated\s+with\b", re.IGNORECASE),
+        re.compile(r"\bafter\b", re.IGNORECASE),
     ]
-
-    # ------------------------------------------------------------------
-    # Indication detection
-    # ------------------------------------------------------------------
 
     INDICATION_PATTERNS = [
-        re.compile(
-            r"\bfor\s+(?:a|an|the)?\s*$",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bhistory\s+of\s*$",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\btreated\s+for\s*$",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\btreatment\s+of\s*$",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bdiagnosed\s+with\s*$",
-            re.IGNORECASE,
-        ),
+        re.compile(r"\bfor\s+(?:a|an|the)?\s*$", re.IGNORECASE),
+        re.compile(r"\bhistory\s+of\s*$", re.IGNORECASE),
+        re.compile(r"\btreated\s+for\s*$", re.IGNORECASE),
+        re.compile(r"\btreatment\s+of\s*$", re.IGNORECASE),
+        
     ]
 
-    # ------------------------------------------------------------------
-    # Therapeutic event detection
-    # ------------------------------------------------------------------
-
-    # IMPORTANT:
-    # "improved", "resolved", etc. are outcome terms and must NOT by
-    # themselves classify an adverse event as therapeutic.
-    #
-    # Therapeutic classification therefore relies on language indicating
-    # that the therapeutic response itself is the event being described.
     THERAPEUTIC_PATTERNS = [
-        re.compile(
-            r"\bbeneficial\s+in\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bsuccessfully\s+treated\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\beffective\s+for\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\bresponded\s+to\s+treatment\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\btherapeutic\s+response\b",
-            re.IGNORECASE,
-        ),
+        re.compile(r"\bbeneficial\s+in\b", re.IGNORECASE),
+        re.compile(r"\bsuccessfully\s+treated\b", re.IGNORECASE),
+        re.compile(r"\beffective\s+for\b", re.IGNORECASE),
+        re.compile(r"\bresponded\s+to\s+treatment\b", re.IGNORECASE),
+        re.compile(r"\btherapeutic\s+response\b", re.IGNORECASE),
     ]
-
-    # ------------------------------------------------------------------
-    # Causality assessment
-    # ------------------------------------------------------------------
 
     CAUSALITY_PATTERNS = [
         re.compile(
@@ -205,10 +134,6 @@ class EventBuilder:
             re.IGNORECASE,
         ),
     ]
-
-    # ------------------------------------------------------------------
-    # Outcome
-    # ------------------------------------------------------------------
 
     OUTCOME_PATTERNS = [
         re.compile(
@@ -226,29 +151,106 @@ class EventBuilder:
             r"(had\s+not\s+recovered\s+at\s+the\s+time\s+of\s+reporting)",
             re.IGNORECASE,
         ),
-        re.compile(
-            r"(died\s+from)",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\b(improved)\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\b(resolved)\b",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"\b(persisted)\b",
-            re.IGNORECASE,
-        ),
+        re.compile(r"(died\s+from)", re.IGNORECASE),
+        re.compile(r"\b(improved)\b", re.IGNORECASE),
+        re.compile(r"\b(resolved)\b", re.IGNORECASE),
+        re.compile(r"\b(persisted)\b", re.IGNORECASE),
     ]
 
-    # Sentence boundaries include normal punctuation and explicit
-    # follow-up separators/newlines used by the case-version workflow.
-    _SENTENCE_PATTERN = re.compile(
-        r"(?<=[.!?])\s+|(?:\r?\n)+"
+    _SENTENCE_PATTERN = re.compile(r"(?<=[.!?])\s+|(?:\r?\n)+")
+
+    # Explicit statements that an exposure predates the event.
+    HISTORICAL_EXPOSURE_PATTERNS = (
+        "stopped before",
+        "stopped prior to",
+        "discontinued before",
+        "discontinued prior to",
+        "ended before",
+        "ended prior to",
+        "had been stopped",
+        "had been discontinued",
+        "no longer receiving",
+        "no longer taking",
+        "previously received",
+        "previously treated with",
     )
+
+    # These indicate that a drug is being described as an exposure
+    # associated with the event, without asserting causality.
+    EXPOSURE_PATTERNS = (
+        "after starting",
+        "after taking",
+        "after receiving",
+        "after initiating",
+        "following treatment with",
+        "following administration of",
+        "while receiving",
+        "while taking",
+        "while using",
+        "during treatment with",
+        "during therapy with",
+        "at the time of the event",
+        "at the time of onset",
+        "when the event occurred",
+        "when the event developed",
+        "receiving",
+        "taking",
+        "using",
+        "on treatment with",
+        "treated with",
+    )
+
+    # Medication-role predicates. Their scope is deliberately local.
+    SUSPECT_MEDICATION_PATTERNS = (
+        "suspect medication",
+        "suspect medications",
+        "suspected medication",
+        "suspected medications",
+        "suspect drug",
+        "suspect drugs",
+        "suspected drug",
+        "suspected drugs",
+    )
+
+    CONCOMITANT_MEDICATION_PATTERNS = (
+        "concomitant medication",
+        "concomitant medications",
+        "concomitant drug",
+        "concomitant drugs",
+        "other medications",
+        "other medication",
+        "background medication",
+        "background medications",
+    )
+
+    
+    # NER classes that represent clinical findings capable of becoming
+    # pharmacovigilance event candidates.
+    #
+    # Disease_disorder is the strongest general-purpose event class.
+    # Sign_symptom represents symptoms/signs that may also constitute
+    # reportable adverse events.
+    #
+    # Clinical_event is intentionally excluded from automatic event
+    # construction. It contains procedural/action concepts such as
+    # "withdrawn" and "hospitalized" that may be clinically important
+    # but are not themselves adverse-event concepts.
+    EVENT_CANDIDATE_RAW_LABELS = frozenset(
+        {
+            "DISEASE_DISORDER",
+            "SIGN_SYMPTOM",
+        }
+    )
+
+    # Biomedical NER classes that should not become PV events simply
+    # because they were normalized into the broad DISEASE role.
+    EXCLUDED_EVENT_RAW_LABELS = frozenset(
+        {
+            "CLINICAL_EVENT",
+        }
+    )
+
+
 
     def build(
         self,
@@ -265,8 +267,8 @@ class EventBuilder:
         # Separate usable findings from excluded findings
         # --------------------------------------------------------------
 
+        
         for disease in result.diseases:
-
             if disease.negated:
                 excluded_findings.append(
                     {
@@ -311,13 +313,38 @@ class EventBuilder:
                 )
                 continue
 
+            raw_label = (
+                disease.raw_label.strip().upper()
+                if getattr(disease, "raw_label", None)
+                else ""
+            )
+
+            # If raw-label information is available, use it to determine
+            # whether this biomedical entity can represent an event.
+            #
+            # The fallback preserves compatibility with older
+            # ExtractedEntity objects that do not contain raw_label.
+            if raw_label:
+                if raw_label not in self.EVENT_CANDIDATE_RAW_LABELS:
+                    excluded_findings.append(
+                        {
+                            "text": disease.text,
+                            "reason": f"Non-event NER class: {raw_label}",
+                            "start_char": disease.start_char,
+                            "end_char": disease.end_char,
+                        }
+                    )
+                    continue
+
             if self._looks_like_indication(disease, text):
                 indications.append(disease)
             else:
                 effects.append(disease)
 
+
+
         # --------------------------------------------------------------
-        # Consolidate repeated mentions of the same current event
+        # Consolidate repeated/overlapping clinical mentions
         # --------------------------------------------------------------
 
         effects = self._consolidate_effects(effects, text)
@@ -327,11 +354,7 @@ class EventBuilder:
         # --------------------------------------------------------------
 
         for effect in effects:
-
-            sentence_text = self._sentence_for_entity(
-                effect,
-                text,
-            )
+            sentence_text = self._sentence_for_entity(effect, text)
 
             is_therapeutic = self._is_therapeutic_event(
                 effect,
@@ -349,7 +372,6 @@ class EventBuilder:
             linked_drugs: list[ExtractedEntity] = []
 
             for drug in result.drugs:
-
                 level, evidence = self._determine_relation(
                     drug,
                     effect,
@@ -369,19 +391,11 @@ class EventBuilder:
                 relations.append(relation)
                 linked_drugs.append(drug)
 
-            # ----------------------------------------------------------
-            # Event-local indication
-            # ----------------------------------------------------------
-
             best_indication = self._best_indication(
                 effect,
                 indications,
                 text,
             )
-
-            # ----------------------------------------------------------
-            # Event-local causality and outcome
-            # ----------------------------------------------------------
 
             causality = self._extract_local_causality(
                 effect,
@@ -409,6 +423,849 @@ class EventBuilder:
         return events, excluded_findings
 
     # ==================================================================
+    # Relationship logic
+    # ==================================================================
+
+
+    def _determine_relation(
+        self,
+        drug: ExtractedEntity,
+        effect: ExtractedEntity,
+        text: str,
+    ) -> tuple[RelationLevel, Optional[str]]:
+        """
+        Determine the relationship between one drug and one event.
+
+        The decision hierarchy is:
+
+            1. entity/context exclusion
+            2. historical exposure exclusion
+            3. explicit negative causality
+            4. explicit positive causality
+            5. suspect-medication scope
+            6. strong same-sentence causal/exposure evidence
+            7. no relationship
+
+        Ordinary drug-event association requires the drug and event to occur
+        within the same sentence. Explicit causality, suspect-medication
+        declarations, and historical-exposure exclusions are handled separately
+        because they may legitimately span sentence boundaries.
+        """
+
+        # --------------------------------------------------------------
+        # 1. Entity-level exclusion
+        # --------------------------------------------------------------
+
+        if (
+            not getattr(drug, "is_current", True)
+            or getattr(drug, "negated", False)
+            or getattr(drug, "historical", False)
+            or getattr(drug, "hypothetical", False)
+            or getattr(drug, "other_experiencer", False)
+        ):
+            return RelationLevel.NONE, None
+
+        if (
+            not getattr(effect, "is_current", True)
+            or getattr(effect, "negated", False)
+            or getattr(effect, "historical", False)
+            or getattr(effect, "hypothetical", False)
+            or getattr(effect, "other_experiencer", False)
+        ):
+            return RelationLevel.NONE, None
+
+        if drug.start_char is None or drug.end_char is None:
+            return RelationLevel.NONE, None
+
+        if effect.start_char is None or effect.end_char is None:
+            return RelationLevel.NONE, None
+
+        drug_text = drug.text.strip().lower()
+        effect_text = effect.text.strip().lower()
+        lower_text = text.lower()
+
+        # --------------------------------------------------------------
+        # 2. Historical exposure exclusion
+        # --------------------------------------------------------------
+
+        historical_relation = self._historical_exposure_relation(
+            drug,
+            effect,
+            lower_text,
+        )
+
+        if historical_relation:
+            return RelationLevel.NONE, None
+
+        # --------------------------------------------------------------
+        # 3. Explicit negative causality
+        # --------------------------------------------------------------
+
+        negative_relation = self._negative_causality_relation(
+            drug,
+            lower_text,
+        )
+
+        if negative_relation:
+            return RelationLevel.NONE, None
+
+        # --------------------------------------------------------------
+        # 4. Explicit positive causality
+        # --------------------------------------------------------------
+
+        positive_relation = self._positive_causality_relation(
+            drug,
+            lower_text,
+        )
+
+        if positive_relation:
+            return RelationLevel.EXPLICIT, positive_relation
+
+        # --------------------------------------------------------------
+        # 5. Suspect-medication scope
+        # --------------------------------------------------------------
+
+        suspect_relation = self._suspect_medication_relation(
+            drug,
+            effect,
+            text,
+        )
+
+        if suspect_relation:
+            return suspect_relation
+
+        # --------------------------------------------------------------
+        # 6. Same-sentence evidence
+        # --------------------------------------------------------------
+
+        sentence_context = self._sentence_context_for_pair(
+            drug,
+            effect,
+            text,
+        )
+
+        # If the drug and event are in different sentences, ordinary
+        # exposure/association evidence is not sufficient to link them.
+        if sentence_context is None:
+            return RelationLevel.NONE, None
+
+        relation = self._same_sentence_relation(
+            drug_text,
+            effect_text,
+            sentence_context,
+        )
+
+        if relation:
+            return relation
+
+        # --------------------------------------------------------------
+        # 7. No relationship
+        # --------------------------------------------------------------
+
+        return RelationLevel.NONE, None
+
+
+    # ==================================================================
+    # Negative causality
+    # ==================================================================
+
+    def _negative_causality_relation(
+        self,
+        drug: ExtractedEntity,
+        lower_text: str,
+    ) -> bool:
+        """
+        Detect explicit negative causal assessments referring to a drug.
+
+        Supported constructions include:
+
+            not related to methotrexate
+            not likely related to methotrexate
+            not considered related to methotrexate
+            unrelated to methotrexate
+
+        Generic statements such as "not related to the study drug" are
+        intentionally handled conservatively because they do not identify
+        which extracted drug is being referenced when several drugs exist.
+        """
+
+        drug_text = drug.text.strip().lower()
+
+        patterns = (
+            "not likely related to",
+            "not related to",
+            "not considered related to",
+            "not considered to be related to",
+            "unrelated to",
+        )
+
+        start = max(0, drug.start_char - 350)
+        end = min(len(lower_text), drug.end_char + 150)
+
+        context = lower_text[start:end]
+
+        for pattern in patterns:
+            position = context.find(pattern)
+
+            while position != -1:
+                absolute_position = start + position
+
+                after = lower_text[
+                    absolute_position + len(pattern):
+                    absolute_position + len(pattern) + 120
+                ]
+
+                if re.search(
+                    rf"\b{re.escape(drug_text)}\b",
+                    after,
+                ):
+                    return True
+
+                position = context.find(
+                    pattern,
+                    position + 1,
+                )
+
+        return False
+
+    # ==================================================================
+    # Positive causality
+    # ==================================================================
+
+    def _positive_causality_relation(
+        self,
+        drug: ExtractedEntity,
+        lower_text: str,
+    ) -> Optional[str]:
+
+        drug_text = drug.text.strip().lower()
+
+        patterns = (
+            "possibly related to",
+            "probably related to",
+            "likely related to",
+            "related to",
+        )
+
+        start = max(0, drug.start_char - 350)
+        end = min(len(lower_text), drug.end_char + 150)
+
+        context = lower_text[start:end]
+
+        for pattern in patterns:
+            position = context.find(pattern)
+
+            while position != -1:
+                absolute_position = start + position
+
+                preceding = lower_text[
+                    max(0, absolute_position - 40):
+                    absolute_position
+                ]
+
+                if re.search(
+                    r"(?:not|never)\s*$",
+                    preceding,
+                    re.IGNORECASE,
+                ):
+                    position = context.find(
+                        pattern,
+                        position + 1,
+                    )
+                    continue
+
+                after = lower_text[
+                    absolute_position + len(pattern):
+                    absolute_position + len(pattern) + 120
+                ]
+
+                if re.search(
+                    rf"\b{re.escape(drug_text)}\b",
+                    after,
+                ):
+                    return pattern
+
+                position = context.find(
+                    pattern,
+                    position + 1,
+                )
+
+        return None
+
+    # ==================================================================
+    # Suspect-medication scope
+    # ==================================================================
+
+    def _suspect_medication_relation(
+        self,
+        drug: ExtractedEntity,
+        effect: ExtractedEntity,
+        text: str,
+    ) -> Optional[tuple[RelationLevel, str]]:
+
+        lower_text = text.lower()
+        drug_text = drug.text.strip().lower()
+
+        for predicate in self.SUSPECT_MEDICATION_PATTERNS:
+            search_start = max(0, drug.start_char - 500)
+            search_end = min(len(text), drug.end_char + 500)
+
+            position = lower_text.find(
+                predicate,
+                search_start,
+                search_end,
+            )
+
+            while position != -1:
+                scope_start = position + len(predicate)
+                scope_end = self._medication_clause_end(
+                    lower_text,
+                    scope_start,
+                )
+
+                scope = lower_text[scope_start:scope_end]
+
+                # The drug must actually occur inside the suspect
+                # medication clause.
+                if re.search(
+                    rf"\b{re.escape(drug_text)}\b",
+                    scope,
+                ):
+                    # Ensure the suspect clause belongs to this event.
+                    if self._scope_is_relevant_to_effect(
+                        effect,
+                        text,
+                        position,
+                        scope_end,
+                    ):
+                        return (
+                            RelationLevel.EVENT_ASSOCIATION,
+                            "suspect medication",
+                        )
+
+                position = lower_text.find(
+                    predicate,
+                    position + len(predicate),
+                    search_end,
+                )
+
+        return None
+
+    def _medication_clause_end(
+        self,
+        lower_text: str,
+        start: int,
+    ) -> int:
+        """
+        Determine the local end of a medication-role clause.
+
+        Stops at sentence boundaries and common clause transitions.
+        This prevents a suspect-medication declaration from swallowing
+        later concomitant medications.
+        """
+
+        candidates = []
+
+        for marker in (
+            ".",
+            "!",
+            "?",
+            "\n",
+            ";",
+        ):
+            position = lower_text.find(marker, start)
+
+            if position != -1:
+                candidates.append(position)
+
+        # Coordinating transitions commonly introduce a new medication
+        # role or an independent clause.
+        for marker in (
+            " concomitant medications",
+            " concomitant medication",
+            " other medications",
+            " other medication",
+            " background medications",
+            " background medication",
+        ):
+            position = lower_text.find(marker, start)
+
+            if position != -1:
+                candidates.append(position)
+
+        if not candidates:
+            return len(lower_text)
+
+        return min(candidates)
+
+    
+    def _scope_is_relevant_to_effect(
+        self,
+        effect: ExtractedEntity,
+        text: str,
+        scope_start: int,
+        scope_end: int,
+    ) -> bool:
+        """
+        Determine whether a suspect-medication declaration belongs to
+        the supplied clinical event.
+
+        The medication-role declaration itself establishes which drugs
+        are suspect. Event relevance is then determined structurally:
+
+        1. Same sentence as the event, or
+        2. Explicit event reference in the surrounding sentence, or
+        3. A nearby event-trigger sentence referring to the same event.
+
+        Arbitrary character-distance thresholds are deliberately avoided.
+        """
+
+        effect_sentence_start, effect_sentence_end = (
+            self._sentence_bounds(effect.start_char, text)
+        )
+
+        # Case 1: suspect declaration occurs in the same sentence.
+        if (
+            effect_sentence_start <= scope_start <= effect_sentence_end
+            or effect_sentence_start <= scope_end <= effect_sentence_end
+        ):
+            return True
+
+        # Determine the sentence containing the suspect declaration.
+        scope_sentence_start, scope_sentence_end = (
+            self._sentence_bounds(scope_start, text)
+        )
+
+        scope_sentence = text[
+            scope_sentence_start:scope_sentence_end
+        ].lower()
+
+        # Case 2: explicit reference to the event.
+        effect_reference = re.search(
+            rf"\b(?:the|this|that)\s+"
+            rf"{re.escape(effect.text.strip())}\b",
+            scope_sentence,
+            re.IGNORECASE,
+        )
+
+        if effect_reference:
+            return True
+
+        # Case 3: event-trigger language explicitly appears in the
+        # suspect-medication sentence and the actual effect is nearby.
+        if self._has_event_trigger(scope_sentence):
+            effect_distance = min(
+                abs(effect.start_char - scope_sentence_end),
+                abs(scope_sentence_start - effect.end_char),
+            )
+
+            # This is deliberately a sentence-level relationship rather
+            # than an unrestricted character-distance rule. Only adjacent
+            # narrative structure is accepted.
+            sentence_distance = self._sentence_distance(
+                effect_sentence_start,
+                scope_sentence_start,
+                text,
+            )
+
+            if sentence_distance <= 1 and effect_distance <= 1:
+                return True
+
+        # Case 4: the suspect declaration is immediately followed by
+        # an event sentence. This is common in structured safety narratives.
+        if scope_sentence_end <= effect_sentence_start:
+            intervening = text[
+                scope_sentence_end:effect_sentence_start
+            ].strip()
+
+            if not intervening:
+                return True
+
+        return False
+
+
+
+    # ==================================================================
+    # Historical exposure
+    # ==================================================================
+
+    def _historical_exposure_relation(
+        self,
+        drug: ExtractedEntity,
+        effect: ExtractedEntity,
+        lower_text: str,
+    ) -> bool:
+
+        start = max(
+            0,
+            min(drug.start_char, effect.start_char) - 300,
+        )
+
+        end = min(
+            len(lower_text),
+            max(drug.end_char, effect.end_char) + 300,
+        )
+
+        context = lower_text[start:end]
+
+        for pattern in self.HISTORICAL_EXPOSURE_PATTERNS:
+            position = context.find(pattern)
+
+            if position == -1:
+                continue
+
+            absolute_position = start + position
+
+            # For constructions such as:
+            #
+            # methotrexate was stopped one year before onset
+            #
+            # the drug must be associated with the historical predicate,
+            # and the event must occur after it.
+            pattern_end = absolute_position + len(pattern)
+
+            drug_before_pattern = (
+                drug.start_char <= absolute_position
+            )
+
+            drug_after_pattern = (
+                drug.start_char >= pattern_end
+            )
+
+            event_after_pattern = (
+                effect.start_char >= pattern_end
+            )
+
+            if (
+                drug_before_pattern
+                and event_after_pattern
+            ):
+                return True
+
+            if (
+                drug_after_pattern
+                and effect.start_char >= pattern_end
+            ):
+                return True
+
+        return False
+
+    # ==================================================================
+    # Same-sentence relationship logic
+    # ==================================================================
+
+    def _same_sentence_relation(
+        self,
+        drug_text: str,
+        effect_text: str,
+        sentence_context: str,
+    ) -> Optional[tuple[RelationLevel, str]]:
+
+        # --------------------------------------------------------------
+        # Explicit causal language
+        # --------------------------------------------------------------
+
+        explicit_patterns = (
+            "induced by",
+            "caused by",
+            "due to",
+            "secondary to",
+            "attributable to",
+        )
+
+        for pattern in explicit_patterns:
+            position = sentence_context.find(pattern)
+
+            if position == -1:
+                continue
+
+            after_pattern = sentence_context[
+                position + len(pattern):
+            ]
+
+            if re.search(
+                rf"\b{re.escape(drug_text)}\b",
+                after_pattern,
+            ):
+                return (
+                    RelationLevel.EXPLICIT,
+                    pattern,
+                )
+
+        # --------------------------------------------------------------
+        # Compound causal construction
+        # --------------------------------------------------------------
+
+        compound_patterns = (
+            f"{drug_text}-induced",
+            f"{drug_text} induced",
+            f"{drug_text}-associated",
+            f"{drug_text} associated",
+            f"{drug_text}-related",
+            f"{drug_text} related",
+        )
+
+        for pattern in compound_patterns:
+            if pattern in sentence_context:
+                evidence = (
+                    pattern
+                    .replace(drug_text, "", 1)
+                    .strip(" -")
+                )
+
+                return (
+                    RelationLevel.EXPLICIT,
+                    evidence,
+                )
+
+        # --------------------------------------------------------------
+        # Active causal construction
+        # --------------------------------------------------------------
+
+        if " caused " in sentence_context:
+            position = sentence_context.find(" caused ")
+
+            before = sentence_context[:position]
+            after = sentence_context[
+                position + len(" caused "):
+            ]
+
+            if (
+                re.search(
+                    rf"\b{re.escape(drug_text)}\b",
+                    before,
+                )
+                and re.search(
+                    rf"\b{re.escape(effect_text)}\b",
+                    after,
+                )
+            ):
+                return (
+                    RelationLevel.EXPLICIT,
+                    "caused",
+                )
+
+        # --------------------------------------------------------------
+        # Temporal/exposure relationship
+        # --------------------------------------------------------------
+
+        for pattern in self.EXPOSURE_PATTERNS:
+            position = sentence_context.find(pattern)
+
+            if position == -1:
+                continue
+
+            before = sentence_context[:position]
+            after = sentence_context[
+                position + len(pattern):
+            ]
+
+            if re.search(
+                rf"\b{re.escape(drug_text)}\b",
+                after,
+            ):
+                return (
+                    RelationLevel.EVENT_ASSOCIATION,
+                    pattern,
+                )
+
+            if re.search(
+                rf"\b{re.escape(drug_text)}\b",
+                before,
+            ):
+                return (
+                    RelationLevel.EVENT_ASSOCIATION,
+                    pattern,
+                )
+
+        # --------------------------------------------------------------
+        # Event verbs
+        # --------------------------------------------------------------
+
+        event_patterns = (
+            "developed",
+            "experienced",
+            "suffered",
+            "presented with",
+            "showed",
+            "reported",
+        )
+
+        for pattern in event_patterns:
+            position = sentence_context.find(pattern)
+
+            if position == -1:
+                continue
+
+            before = sentence_context[:position]
+            after = sentence_context[
+                position + len(pattern):
+            ]
+
+            if (
+                re.search(
+                    rf"\b{re.escape(drug_text)}\b",
+                    before,
+                )
+                or re.search(
+                    rf"\b{re.escape(drug_text)}\b",
+                    after,
+                )
+            ):
+                return (
+                    RelationLevel.EVENT_ASSOCIATION,
+                    pattern,
+                )
+
+        return None
+
+    # ==================================================================
+    # Cross-sentence exposure logic
+    # ==================================================================
+
+    def _cross_sentence_exposure_relation(
+        self,
+        drug: ExtractedEntity,
+        effect: ExtractedEntity,
+        text: str,
+    ) -> Optional[tuple[RelationLevel, str]]:
+
+        """
+        Connect an exposure statement to a nearby event without using
+        unrestricted proximity.
+
+        Example:
+
+            The patient was receiving methotrexate.
+            He subsequently developed squamous cell carcinoma.
+
+        This is an event association.
+
+        A drug merely appearing somewhere earlier in the narrative is
+        not sufficient.
+        """
+
+        drug_sentence_start, drug_sentence_end = (
+            self._sentence_bounds(drug.start_char, text)
+        )
+
+        effect_sentence_start, effect_sentence_end = (
+            self._sentence_bounds(effect.start_char, text)
+        )
+
+        if (
+            drug_sentence_start == effect_sentence_start
+            and drug_sentence_end == effect_sentence_end
+        ):
+            return None
+
+        sentence_distance = self._sentence_distance(
+            drug_sentence_start,
+            effect_sentence_start,
+            text,
+        )
+
+        if sentence_distance > 2:
+            return None
+
+        drug_sentence = text[
+            drug_sentence_start:drug_sentence_end
+        ].lower()
+
+        effect_sentence = text[
+            effect_sentence_start:effect_sentence_end
+        ].lower()
+
+        drug_text = drug.text.strip().lower()
+        effect_text = effect.text.strip().lower()
+
+        # --------------------------------------------------------------
+        # Exposure sentence
+        # --------------------------------------------------------------
+
+        exposure_evidence = None
+
+        for pattern in self.EXPOSURE_PATTERNS:
+            if pattern in drug_sentence:
+                if re.search(
+                    rf"\b{re.escape(drug_text)}\b",
+                    drug_sentence,
+                ):
+                    exposure_evidence = pattern
+                    break
+
+        if exposure_evidence is None:
+            # Common clinical construction:
+            #
+            # "The patient was receiving methotrexate..."
+            #
+            # already covered by "receiving", but this explicit check
+            # makes the grammatical role clear.
+            if re.search(
+                rf"\b(?:receiving|taking|using|on)\s+"
+                rf"{re.escape(drug_text)}\b",
+                drug_sentence,
+            ):
+                exposure_evidence = "drug exposure"
+
+        if exposure_evidence is None:
+            return None
+
+        # --------------------------------------------------------------
+        # Event sentence must contain an event trigger or temporal
+        # development language.
+        # --------------------------------------------------------------
+
+        event_trigger = re.search(
+            r"\b(?:developed|experienced|suffered|"
+            r"presented\s+with|reported|diagnosed\s+with|"
+            r"was\s+diagnosed\s+with|occurred|onset)\b",
+            effect_sentence,
+            re.IGNORECASE,
+        )
+
+        effect_present = re.search(
+            rf"\b{re.escape(effect_text)}\b",
+            effect_sentence,
+        )
+
+        if not effect_present:
+            return None
+
+        if not event_trigger:
+            return None
+
+        # --------------------------------------------------------------
+        # Directionality:
+        #
+        # Exposure before event is the safest cross-sentence pattern.
+        # Event followed by an explicit "receiving..." sentence is also
+        # acceptable when the exposure clearly refers to the event.
+        # --------------------------------------------------------------
+
+        if drug.start_char < effect.start_char:
+            return (
+                RelationLevel.EVENT_ASSOCIATION,
+                exposure_evidence,
+            )
+
+        if (
+            effect.start_char < drug.start_char
+            and sentence_distance <= 1
+            and re.search(
+                r"\b(?:at\s+the\s+time|when|while|during)\b",
+                drug_sentence,
+                re.IGNORECASE,
+            )
+        ):
+            return (
+                RelationLevel.EVENT_ASSOCIATION,
+                exposure_evidence,
+            )
+
+        return None
+
+    # ==================================================================
     # Therapeutic event logic
     # ==================================================================
 
@@ -418,23 +1275,7 @@ class EventBuilder:
         sentence_text: str,
         text: str,
     ) -> bool:
-        """
-        Determine whether the extracted finding represents a therapeutic
-        event rather than an adverse event.
 
-        Outcome language such as:
-            "rash improved"
-            "headache resolved"
-            "pain persisted"
-
-        describes the course of an adverse event and must not itself
-        convert that event into a therapeutic event.
-
-        Therapeutic classification therefore requires an explicit
-        treatment-response construction.
-        """
-
-        # Outcome terms alone are never sufficient.
         if re.search(
             r"\b(?:improved|resolved|persisted)\b",
             sentence_text,
@@ -449,152 +1290,6 @@ class EventBuilder:
             pattern.search(sentence_text)
             for pattern in self.THERAPEUTIC_PATTERNS
         )
-
-    # ==================================================================
-    # Relationship logic
-    # ==================================================================
-
-    def _determine_relation(
-        self,
-        drug: ExtractedEntity,
-        effect: ExtractedEntity,
-        text: str,
-    ) -> tuple[RelationLevel, Optional[str]]:
-
-        # Exclude drugs that cannot be considered current candidates.
-        if (
-            not drug.is_current
-            or drug.negated
-            or drug.historical
-            or drug.hypothetical
-        ):
-            return RelationLevel.NONE, None
-
-        drug_sentence = self._sentence_bounds(
-            drug.start_char,
-            text,
-        )
-        effect_sentence = self._sentence_bounds(
-            effect.start_char,
-            text,
-        )
-
-        # Sentence proximity alone is insufficient evidence.
-        if drug_sentence != effect_sentence:
-            return RelationLevel.NONE, None
-
-        sentence_start, sentence_end = drug_sentence
-
-        # Text between the two candidate entities.
-        if drug.end_char <= effect.start_char:
-            between = text[
-                drug.end_char:effect.start_char
-            ]
-            drug_precedes_effect = True
-
-        elif effect.end_char <= drug.start_char:
-            between = text[
-                effect.end_char:drug.start_char
-            ]
-            drug_precedes_effect = False
-
-        else:
-            return RelationLevel.NONE, None
-
-        # --------------------------------------------------
-        # Explicit causal evidence
-        # --------------------------------------------------
-
-        causal_patterns = (
-            r"\binduced\s+by\b",
-            r"\bdue\s+to\b",
-            r"\bcaused\s+by\b",
-            r"\bsecondary\s+to\b",
-            r"\battributable\s+to\b",
-        )
-
-        for pattern in causal_patterns:
-            match = re.search(
-                pattern,
-                between,
-                re.IGNORECASE,
-            )
-
-            if match:
-                return (
-                    RelationLevel.EXPLICIT,
-                    match.group(0),
-                )
-
-        # Drug-name compounds, e.g. methotrexate-induced
-        # hepatotoxicity.
-        if drug_precedes_effect:
-            drug_to_effect = text[
-                drug.end_char:effect.start_char
-            ]
-
-            if re.match(
-                r"^\s*-\s*(?:induced|associated)\b",
-                drug_to_effect,
-                re.IGNORECASE,
-            ):
-                return RelationLevel.EXPLICIT, "induced"
-
-        # Active causal construction:
-        # "amoxicillin caused the rash"
-        if drug_precedes_effect and re.search(
-            r"\b(?:caused|induced|triggered|provoked)\b",
-            between,
-            re.IGNORECASE,
-        ):
-            match = re.search(
-                r"\b(?:caused|induced|triggered|provoked)\b",
-                between,
-                re.IGNORECASE,
-            )
-
-            return (
-                RelationLevel.EXPLICIT,
-                match.group(0),
-            )
-
-        # --------------------------------------------------
-        # Local temporal association
-        # --------------------------------------------------
-
-        prefix_start = max(
-            sentence_start,
-            drug.start_char - 100,
-        )
-
-        drug_prefix = text[
-            prefix_start:drug.start_char
-        ]
-
-        temporal_prefix_patterns = (
-            r"\b(?:after|following)\s+"
-            r"(?:taking|starting|receiving|initiating)\s*$",
-
-            r"\b(?:after|following)\s+"
-            r"(?:administration\s+of|treatment\s+with)\s*$",
-
-            r"\b(?:after|following)\s*$",
-        )
-
-        for pattern in temporal_prefix_patterns:
-            match = re.search(
-                pattern,
-                drug_prefix,
-                re.IGNORECASE,
-            )
-
-            if match:
-                return (
-                    RelationLevel.EVENT_ASSOCIATION,
-                    match.group(0).strip(),
-                )
-
-        return RelationLevel.NONE, None
 
     # ==================================================================
     # Indication logic
@@ -698,27 +1393,20 @@ class EventBuilder:
             sentence_start:sentence_end
         ]
 
-        # First, check the sentence containing the adverse event.
         for pattern in self.OUTCOME_PATTERNS:
             match = pattern.search(sentence)
 
             if match:
                 return match.group(1).strip()
 
-        # If no outcome is found, inspect the immediately following
-        # sentence. The outcome is attached only if that sentence
-        # explicitly refers back to the same effect.
         next_text = text[sentence_end:]
 
         if not next_text.strip():
             return None
 
-        # Split the remaining text into logical sentences/segments.
         segments = [
             segment.strip()
-            for segment in self._SENTENCE_PATTERN.split(
-                next_text
-            )
+            for segment in self._SENTENCE_PATTERN.split(next_text)
             if segment.strip()
         ]
 
@@ -727,10 +1415,6 @@ class EventBuilder:
 
         next_sentence = segments[0]
 
-        # Require an explicit reference to this effect:
-        # "The rash improved..."
-        # "This rash resolved..."
-        # "That rash persisted..."
         effect_reference = re.search(
             rf"\b(?:the|this|that)\s+"
             rf"{re.escape(effect.text)}\b",
@@ -764,49 +1448,198 @@ class EventBuilder:
 
         ordered = sorted(
             effects,
-            key=lambda x: x.start_char,
+            key=lambda x: (
+                x.start_char if x.start_char is not None else 0,
+                -(x.end_char - x.start_char)
+                if x.start_char is not None and x.end_char is not None
+                else 0,
+            ),
         )
 
         consolidated: list[ExtractedEntity] = []
 
         for effect in ordered:
-
             if not consolidated:
                 consolidated.append(effect)
                 continue
 
-            previous = consolidated[-1]
+            merged = False
 
-            same_text = (
-                effect.text.strip().lower()
-                == previous.text.strip().lower()
-            )
+            # ----------------------------------------------------------
+            # Compare against recent clinical mentions.
+            # ----------------------------------------------------------
 
-            distance = (
-                effect.start_char
-                - previous.end_char
-            )
-
-            # "rash ... the rash improved"
-            #
-            # Identical effect mentions in adjacent narrative are usually
-            # references to the same event rather than separate adverse
-            # events.
-            if same_text and distance <= 160:
-
-                between = text[
-                    previous.end_char:
-                    effect.start_char
-                ]
-
-                if not self._contains_historical_marker(
-                    between
+            for previous in reversed(consolidated[-3:]):
+                if (
+                    previous.start_char is None
+                    or previous.end_char is None
+                    or effect.start_char is None
+                    or effect.end_char is None
                 ):
                     continue
 
+                previous_text = previous.text.strip().lower()
+                current_text = effect.text.strip().lower()
+
+                # ------------------------------------------------------
+                # Exact duplicate mention.
+                # ------------------------------------------------------
+
+                if previous_text == current_text:
+                    distance = effect.start_char - previous.end_char
+
+                    if distance <= 500:
+                        between = text[
+                            previous.end_char:effect.start_char
+                        ]
+
+                        if not self._contains_historical_marker(
+                            between
+                        ):
+                            merged = True
+                            break
+
+                # ------------------------------------------------------
+                # Contained/overlapping mentions.
+                #
+                # Example:
+                #
+                # "pneumocystis jirovecii pneumonia"
+                #
+                # can produce:
+                #
+                # "pneumocystis jirovecii"
+                # "pneumonia"
+                #
+                # as separate NER entities.
+                # ------------------------------------------------------
+
+                overlap = (
+                    previous.start_char < effect.end_char
+                    and effect.start_char < previous.end_char
+                )
+
+                if overlap:
+                    merged = True
+                    break
+
+                # ------------------------------------------------------
+                # Adjacent compound disease mentions.
+                #
+                # Example:
+                #
+                # "pneumocystis jirovecii pneumonia"
+                #
+                # where NER produced adjacent entities.
+                # ------------------------------------------------------
+
+                distance = effect.start_char - previous.end_char
+
+                if 0 <= distance <= 2:
+                    between = text[
+                        previous.end_char:effect.start_char
+                    ]
+
+                    if between.strip() in ("", "-"):
+                        merged = True
+                        break
+
+                # ------------------------------------------------------
+                # Later confirmation/reference of the same event.
+                #
+                # "pneumocystis jirovecii pneumonia was diagnosed..."
+                # ...
+                # "PCR confirmed pneumocystis jirovecii pneumonia."
+                #
+                # Exact/near-identical mentions are already handled above.
+                # We deliberately avoid broad semantic merging here
+                # because lexical evidence is safer at this layer.
+                # ------------------------------------------------------
+
+            if merged:
+                continue
+
             consolidated.append(effect)
 
-        return consolidated
+        return self._remove_contained_effects(consolidated, text)
+
+    def _remove_contained_effects(
+        self,
+        effects: list[ExtractedEntity],
+        text: str,
+    ) -> list[ExtractedEntity]:
+
+        if len(effects) < 2:
+            return effects
+
+        ordered = sorted(
+            effects,
+            key=lambda x: (
+                x.start_char if x.start_char is not None else 0,
+                -(x.end_char - x.start_char)
+                if x.start_char is not None and x.end_char is not None
+                else 0,
+            ),
+        )
+
+        result: list[ExtractedEntity] = []
+
+        for candidate in ordered:
+            if (
+                candidate.start_char is None
+                or candidate.end_char is None
+            ):
+                result.append(candidate)
+                continue
+
+            candidate_text = candidate.text.strip().lower()
+
+            contained = False
+
+            for existing in result:
+                if (
+                    existing.start_char is None
+                    or existing.end_char is None
+                ):
+                    continue
+
+                if (
+                    existing.start_char <= candidate.start_char
+                    and existing.end_char >= candidate.end_char
+                    and existing != candidate
+                ):
+                    existing_text = existing.text.strip().lower()
+
+                    if (
+                        candidate_text in existing_text
+                        or self._spans_overlap(
+                            existing,
+                            candidate,
+                        )
+                    ):
+                        contained = True
+                        break
+
+            if not contained:
+                result.append(candidate)
+
+        return sorted(
+            result,
+            key=lambda x: (
+                x.start_char if x.start_char is not None else 0
+            ),
+        )
+
+    @staticmethod
+    def _spans_overlap(
+        first: ExtractedEntity,
+        second: ExtractedEntity,
+    ) -> bool:
+
+        return (
+            first.start_char < second.end_char
+            and second.start_char < first.end_char
+        )
 
     # ==================================================================
     # Sentence helpers
@@ -821,65 +1654,28 @@ class EventBuilder:
         start = 0
         end = len(text)
 
-        # Normal punctuation boundaries.
-        left_punctuation = list(
+        left_matches = list(
             re.finditer(
-                r"[.!?]",
+                r"[.!?]|\r?\n",
                 text[:char_pos],
             )
         )
 
-        # Newline boundaries are important for follow-up narratives
-        # and records where sentences do not end in punctuation.
-        left_newline = list(
-            re.finditer(
-                r"\r?\n",
-                text[:char_pos],
-            )
-        )
+        if left_matches:
+            start = left_matches[-1].end()
 
-        if left_punctuation or left_newline:
-            candidates = []
-
-            if left_punctuation:
-                candidates.append(
-                    left_punctuation[-1].end()
-                )
-
-            if left_newline:
-                candidates.append(
-                    left_newline[-1].end()
-                )
-
-            start = max(candidates)
-
-        right_candidates = []
-
-        right_punctuation = re.search(
-            r"[.!?]",
+        right_match = re.search(
+            r"[.!?]|\r?\n",
             text[char_pos:],
         )
 
-        if right_punctuation:
-            right_candidates.append(
-                char_pos
-                + right_punctuation.start()
-                + 1
+        if right_match:
+            end = char_pos + right_match.start() + (
+                1 if text[
+                    char_pos + right_match.start()
+                ] in ".!?"
+                else 0
             )
-
-        right_newline = re.search(
-            r"\r?\n",
-            text[char_pos:],
-        )
-
-        if right_newline:
-            right_candidates.append(
-                char_pos
-                + right_newline.start()
-            )
-
-        if right_candidates:
-            end = min(right_candidates)
 
         return start, end
 
@@ -896,6 +1692,60 @@ class EventBuilder:
 
         return text[start:end]
 
+    def _sentence_context_for_pair(
+        self,
+        drug: ExtractedEntity,
+        effect: ExtractedEntity,
+        text: str,
+    ) -> Optional[str]:
+
+        first = min(
+            drug.start_char,
+            effect.start_char,
+        )
+
+        last = max(
+            drug.end_char,
+            effect.end_char,
+        )
+
+        between = text[first:last]
+
+        if re.search(
+            r"[.!?]|\r?\n",
+            between,
+        ):
+            return None
+
+        start, end = self._sentence_bounds(
+            first,
+            text,
+        )
+
+        return text[start:end].lower()
+
+    def _sentence_distance(
+        self,
+        first_start: int,
+        second_start: int,
+        text: str,
+    ) -> int:
+
+        if first_start == second_start:
+            return 0
+
+        low = min(first_start, second_start)
+        high = max(first_start, second_start)
+
+        segment = text[low:high]
+
+        return len(
+            re.findall(
+                r"[.!?]|\r?\n",
+                segment,
+            )
+        )
+
     @staticmethod
     def _has_event_trigger(text: str) -> bool:
         return bool(
@@ -909,7 +1759,6 @@ class EventBuilder:
 
     @staticmethod
     def _contains_historical_marker(text: str) -> bool:
-
         return bool(
             re.search(
                 r"\b(?:history\s+of|previous(?:ly)?|prior(?:ly)?|"

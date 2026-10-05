@@ -42,12 +42,6 @@ class ContextLabel(IntFlag):
     OTHER_EXPERIENCER = auto()
 
 
-# These rules deliberately avoid broad verbs such as "had".
-#
-# "The patient had a rash" is a current event.
-# "The patient had a rash several years ago" is historical.
-#
-# Likewise, "suspected reaction" is not hypothetical.
 _PV_CONTEXT_RULES: list[tuple[str, str, str]] = [
     # Explicit historical references
     ("history of", "HISTORICAL", "FORWARD"),
@@ -104,11 +98,6 @@ _CATEGORY_TO_FLAG: dict[str, ContextLabel] = {
 }
 
 
-# Temporal phrases that are especially useful in PV narratives.
-#
-# These are applied locally to the entity's sentence rather than globally.
-# This prevents "several years earlier" from contaminating unrelated
-# entities elsewhere in the narrative.
 _HISTORICAL_TEMPORAL_PATTERNS = [
     re.compile(
         r"\b(?:several|many|a few|\d+)\s+years?\s+(?:ago|earlier|before)\b",
@@ -170,18 +159,14 @@ class ContextFilter:
 
         doc = result.doc
 
-        # Make sure sentence boundaries exist for our local temporal checks.
-        # We deliberately do not run the complete pipeline again because
-        # result.doc already contains the NER entities.
         if not list(doc.sents):
             self._nlp.get_pipe("sentencizer")(doc)
 
-        # Run MedSpaCy ConText on the existing Doc.
         self._nlp.get_pipe("medspacy_context")(doc)
 
         return ExtractionResult(
-            drugs=[self._apply_flags(e, doc) for e in result.drugs],
-            diseases=[self._apply_flags(e, doc) for e in result.diseases],
+            drugs=[self._apply_flags(e, doc, result) for e in result.drugs],
+            diseases=[self._apply_flags(e, doc, result) for e in result.diseases],
             doc=doc,
         )
 
@@ -200,12 +185,14 @@ class ContextFilter:
         self,
         entity: ExtractedEntity,
         doc: Doc,
+        result: ExtractionResult,
     ) -> ExtractedEntity:
         """
-        Combine MedSpaCy context with local temporal rules.
+        Combine MedSpaCy context with local pharmacovigilance rules.
 
-        Important:
-        "suspected" is intentionally NOT mapped to hypothetical.
+        Context modifiers from MedSpaCy are treated as candidate evidence.
+        Their scope is validated against the extracted entities before
+        assigning historical status.
         """
 
         span = doc.char_span(
@@ -221,36 +208,28 @@ class ContextFilter:
             getattr(span._, "is_negated", False)
         )
 
-        historical = bool(
-            getattr(span._, "is_historical", False)
-        )
-
         hypothetical = bool(
             getattr(span._, "is_hypothetical", False)
-        )
-
-        uncertain = bool(
-            getattr(span._, "is_uncertain", False)
         )
 
         other_experiencer = bool(
             getattr(span._, "is_family", False)
         )
 
-        # Do not turn ordinary uncertainty/causality language into
-        # hypothetical existence.
-        #
-        # Example:
-        # "The doctor documented the suspected reaction."
-        #
-        # The reaction exists; its causality is uncertain.
+        historical = self._historical_context_applies(
+            entity=entity,
+            span=span,
+            doc=doc,
+            result=result,
+        )
+
         if self._has_suspected_language_before(span):
             hypothetical = False
 
-        sentence_text = self._sentence_text(span)
-
-        if self._has_historical_temporal_reference(sentence_text):
-            historical = True
+        historical = historical or self._entity_has_local_historical_time(
+            entity,
+            span,
+        )
 
         return replace(
             entity,
@@ -260,21 +239,173 @@ class ContextFilter:
             other_experiencer=other_experiencer,
         )
 
-    @staticmethod
-    def _sentence_text(span) -> str:
-        """Return the text of the sentence containing the entity."""
+    def _historical_context_applies(
+    self,
+    entity: ExtractedEntity,
+    span,
+    doc: Doc,
+    result: ExtractionResult,
+) -> bool:
+        """
+        Validate historical ConText modifiers against extracted-entity scope.
 
-        try:
-            return span.sent.text
-        except (AttributeError, ValueError):
-            return ""
+        MedSpaCy may attach one forward-scoped modifier to several entities.
+        We therefore do not trust span._.is_historical directly.
+
+        A historical modifier applies when:
+
+        1. the modifier occurs before the entity,
+        2. the modifier and entity are in the same sentence,
+        3. no clause boundary intervenes,
+        4. no unrelated extracted entity intervenes.
+
+        Coordinated entities remain eligible when they form part of the
+        same local historical phrase.
+        """
+
+        modifiers = getattr(span._, "modifiers", ())
+
+        for modifier in modifiers:
+            if getattr(modifier, "category", "") != "HISTORICAL":
+                continue
+
+            modifier_start = getattr(modifier, "_start", None)
+            modifier_end = getattr(modifier, "_end", None)
+
+            if modifier_start is None or modifier_end is None:
+                continue
+
+            if modifier_end > span.start:
+                continue
+
+            modifier_span = doc[modifier_start:modifier_end]
+
+            if modifier_span.sent.start != span.sent.start:
+                continue
+
+            between = doc.text[
+                modifier_span.end_char:span.start_char
+            ]
+
+            if self._contains_clause_boundary(between):
+                continue
+
+            intervening_entities = self._intervening_entities(
+                entity,
+                modifier_span,
+                result,
+            )
+
+            if not intervening_entities:
+                return True
+
+            if self._is_part_of_same_coordination(
+                between,
+                intervening_entities,
+            ):
+                return True
+
+        return False
+    @staticmethod
+    def _contains_clause_boundary(text: str) -> bool:
+        """
+        Identify punctuation or discourse markers that normally terminate
+        forward contextual scope.
+        """
+
+        if re.search(r"[.;:!?]", text):
+            return True
+
+        return bool(
+            re.search(
+                r"\b(?:however|but|then|later|although|although|whereas)\b",
+                text,
+                re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _intervening_entities(
+        entity: ExtractedEntity,
+        modifier_span,
+        result: ExtractionResult,
+    ) -> list[ExtractedEntity]:
+        """Return extracted entities between the modifier and target entity."""
+
+        all_entities = [*result.drugs, *result.diseases]
+
+        return sorted(
+            [
+                candidate
+                for candidate in all_entities
+                if candidate is not entity
+                and candidate.start_char >= modifier_span.end_char
+                and candidate.end_char <= entity.start_char
+            ],
+            key=lambda item: item.start_char,
+        )
+
+    @staticmethod
+    def _is_part_of_same_coordination(
+        between: str,
+        intervening_entities: list[ExtractedEntity],
+    ) -> bool:
+        """
+        Allow historical scope to continue through a simple coordinated list.
+
+        Example:
+            "history of hypertension and diabetes"
+
+        The conjunction must occur after the intervening entity rather than
+        introducing a new clause.
+        """
+
+        if not intervening_entities:
+            return False
+
+        return bool(
+            re.search(
+                r"\b(?:and|or)\b",
+                between,
+                re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _entity_has_local_historical_time(
+        entity: ExtractedEntity,
+        span,
+    ) -> bool:
+        """
+        Detect temporal historical language local to the entity.
+
+        Unlike the previous implementation, this does not inspect the entire
+        sentence. The temporal phrase must occur close to the entity and
+        before or immediately after it.
+        """
+
+        sentence_text = span.sent.text
+
+        for pattern in _HISTORICAL_TEMPORAL_PATTERNS:
+            for match in pattern.finditer(sentence_text):
+                absolute_start = span.sent.start_char + match.start()
+                absolute_end = span.sent.start_char + match.end()
+
+                distance_before = entity.start_char - absolute_end
+                distance_after = absolute_start - entity.end_char
+
+                if 0 <= distance_before <= 80:
+                    return True
+
+                if 0 <= distance_after <= 80:
+                    return True
+
+        return False
 
     @staticmethod
     def _has_suspected_language_before(span) -> bool:
         """
         Detect causality-uncertainty wording immediately before an entity.
-
-        This is deliberately narrow.
 
         "suspected reaction" -> reaction is not hypothetical.
         "possible reaction" -> reaction may be hypothetical.
@@ -290,13 +421,4 @@ class ContextFilter:
                 before,
                 re.IGNORECASE,
             )
-        )
-
-    @staticmethod
-    def _has_historical_temporal_reference(sentence_text: str) -> bool:
-        """Return True if the sentence contains a historical time marker."""
-
-        return any(
-            pattern.search(sentence_text)
-            for pattern in _HISTORICAL_TEMPORAL_PATTERNS
         )
