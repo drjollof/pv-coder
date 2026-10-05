@@ -122,15 +122,13 @@ class EventBuilder:
 
     CAUSALITY_PATTERNS = [
         re.compile(
-            r"investigator\s+considered\s+the\s+event\s+"
-            r"(not(?:\s+likely)?\s+related\s+to\s+"
-            r"(?:the\s+)?(?:study\s+)?(?:drug|medications?))",
-            re.IGNORECASE,
-        ),
-        re.compile(
-            r"investigator\s+considered\s+the\s+event\s+"
-            r"(related\s+to\s+(?:the\s+)?"
-            r"(?:study\s+)?(?:drug|medications?))",
+            r"(?:investigator|authority|reviewer|assessor|committee|"
+            r"regulator|sponsor|physician|doctor|clinician)\s+"
+            r"(?:considered|judged|assessed|determined)\s+"
+            r"the\s+event\s+(?:to\s+be\s+)?"
+            r"(not(?:\s+likely)?|possibly|probably|likely)\s+"
+            r"related\s+to\s+(?:the\s+)?"
+            r"(?:study\s+)?(?:drug|medications?)",
             re.IGNORECASE,
         ),
     ]
@@ -419,6 +417,15 @@ class EventBuilder:
                     relations=relations,
                 )
             )
+
+        # Explicit causality assessments may occur after the event sentence.
+        # Resolve only explicit event-reference constructions; do not use
+        # unrestricted cross-sentence proximity.
+        self._apply_explicit_event_reference_causality(
+            events,
+            result.drugs,
+            text,
+        )
 
         return events, excluded_findings
 
@@ -1375,6 +1382,111 @@ class EventBuilder:
         return None
 
     # ==================================================================
+    # Explicit event-reference causality
+    # ==================================================================
+
+    def _apply_explicit_event_reference_causality(
+        self,
+        events: list[PharmacovigilanceEvent],
+        drugs: list[ExtractedEntity],
+        text: str,
+    ) -> None:
+        """
+        Resolve explicit causality assessments that refer to "the event".
+
+        This deliberately handles an explicit discourse construction rather
+        than using unrestricted character or sentence proximity.  If the
+        narrative contains multiple candidate events, an explicit outcome
+        reference is preferred; otherwise the statement is applied only when
+        the event is unambiguous.
+        """
+        if not events or not drugs:
+            return
+
+        pattern = re.compile(
+            r"\b(?:considered|judged|assessed|determined)\s+"
+            r"(?:the\s+)?event\s+"
+            r"(?:to\s+be\s+)?"
+            r"(?P<assessment>not\s+likely|possibly|probably|likely|not)"
+            r"\s+related\s+to\s+"
+            r"(?P<drug>[A-Za-z][A-Za-z0-9'\- ]*)",
+            re.IGNORECASE,
+        )
+
+        sentences = [
+            segment.strip()
+            for segment in self._SENTENCE_PATTERN.split(text)
+            if segment.strip()
+        ]
+
+        for sentence in sentences:
+            match = pattern.search(sentence)
+            if not match:
+                continue
+
+            assessment = match.group("assessment").strip().lower()
+            drug_phrase = match.group("drug").strip().lower()
+
+            matched_drugs = [
+                drug
+                for drug in drugs
+                if re.search(
+                    rf"\b{re.escape(drug.text.strip().lower())}\b",
+                    drug_phrase,
+                )
+            ]
+
+            if len(matched_drugs) != 1:
+                continue
+
+            target_events = [
+                event
+                for event in events
+                if event.outcome
+                and event.outcome.strip().lower() == "died from"
+            ]
+
+            if len(target_events) != 1:
+                target_events = events if len(events) == 1 else []
+
+            if len(target_events) != 1:
+                continue
+
+            target = target_events[0]
+            drug = matched_drugs[0]
+
+            target.causality = assessment
+
+            existing = next(
+                (
+                    relation
+                    for relation in target.relations
+                    if relation.drug.text.strip().casefold()
+                    == drug.text.strip().casefold()
+                ),
+                None,
+            )
+
+            if existing is not None:
+                existing.level = RelationLevel.EXPLICIT
+                existing.evidence = "explicit event causality assessment"
+            else:
+                relation = DrugEffectRelation(
+                    drug=drug,
+                    effect=target.effect,
+                    level=RelationLevel.EXPLICIT,
+                    evidence="explicit event causality assessment",
+                )
+                target.relations.append(relation)
+
+            if not any(
+                existing_drug.text.strip().casefold()
+                == drug.text.strip().casefold()
+                for existing_drug in target.drugs
+            ):
+                target.drugs.append(drug)
+
+    # ==================================================================
     # Outcome
     # ==================================================================
 
@@ -1442,7 +1554,21 @@ class EventBuilder:
         effects: list[ExtractedEntity],
         text: str,
     ) -> list[ExtractedEntity]:
+        """
+        Consolidate NER spans that represent one clinical mention.
 
+        NER identifies candidate biomedical spans; it does not decide whether
+        adjacent spans form one clinical expression.  This method therefore
+        performs only structurally supported consolidation:
+
+        * exact repeated mentions are deduplicated;
+        * overlapping spans are resolved;
+        * same-sentence spans forming a continuous clinical phrase are merged.
+
+        The method does not use disease-specific vocabulary such as
+        "pneumocystis".  The intervening text must be short, punctuation-free,
+        and free of coordinating conjunctions that normally separate findings.
+        """
         if not effects:
             return []
 
@@ -1465,10 +1591,6 @@ class EventBuilder:
 
             merged = False
 
-            # ----------------------------------------------------------
-            # Compare against recent clinical mentions.
-            # ----------------------------------------------------------
-
             for previous in reversed(consolidated[-3:]):
                 if (
                     previous.start_char is None
@@ -1481,87 +1603,135 @@ class EventBuilder:
                 previous_text = previous.text.strip().lower()
                 current_text = effect.text.strip().lower()
 
-                # ------------------------------------------------------
-                # Exact duplicate mention.
-                # ------------------------------------------------------
-
+                # Exact repeated mention: keep the first canonical span.
                 if previous_text == current_text:
-                    distance = effect.start_char - previous.end_char
-
-                    if distance <= 500:
+                    if effect.start_char >= previous.end_char:
                         between = text[
                             previous.end_char:effect.start_char
                         ]
-
-                        if not self._contains_historical_marker(
-                            between
+                        if (
+                            len(between) <= 500
+                            and not re.search(r"[.!?]", between)
+                            and not self._contains_historical_marker(between)
                         ):
                             merged = True
                             break
 
-                # ------------------------------------------------------
-                # Contained/overlapping mentions.
-                #
-                # Example:
-                #
-                # "pneumocystis jirovecii pneumonia"
-                #
-                # can produce:
-                #
-                # "pneumocystis jirovecii"
-                # "pneumonia"
-                #
-                # as separate NER entities.
-                # ------------------------------------------------------
-
-                overlap = (
-                    previous.start_char < effect.end_char
-                    and effect.start_char < previous.end_char
-                )
-
-                if overlap:
+                # Overlapping candidates represent the same local mention.
+                if self._spans_overlap(previous, effect):
                     merged = True
                     break
 
-                # ------------------------------------------------------
-                # Adjacent compound disease mentions.
-                #
-                # Example:
-                #
-                # "pneumocystis jirovecii pneumonia"
-                #
-                # where NER produced adjacent entities.
-                # ------------------------------------------------------
+                # Structurally continuous compound clinical expression.
+                if self._can_merge_compound_effects(
+                    previous,
+                    effect,
+                    text,
+                ):
+                    merged_effect = self._merge_effect_entities(
+                        previous,
+                        effect,
+                        text,
+                    )
+                    consolidated[-1] = merged_effect
+                    merged = True
+                    break
 
-                distance = effect.start_char - previous.end_char
-
-                if 0 <= distance <= 2:
-                    between = text[
-                        previous.end_char:effect.start_char
-                    ]
-
-                    if between.strip() in ("", "-"):
-                        merged = True
-                        break
-
-                # ------------------------------------------------------
-                # Later confirmation/reference of the same event.
-                #
-                # "pneumocystis jirovecii pneumonia was diagnosed..."
-                # ...
-                # "PCR confirmed pneumocystis jirovecii pneumonia."
-                #
-                # Exact/near-identical mentions are already handled above.
-                # We deliberately avoid broad semantic merging here
-                # because lexical evidence is safer at this layer.
-                # ------------------------------------------------------
-
-            if merged:
-                continue
-
-            consolidated.append(effect)
+            if not merged:
+                consolidated.append(effect)
 
         return self._remove_contained_effects(consolidated, text)
+
+    @staticmethod
+    def _can_merge_compound_effects(
+        previous: ExtractedEntity,
+        current: ExtractedEntity,
+        text: str,
+    ) -> bool:
+        """Return True when two same-sentence spans form one compound phrase."""
+        if (
+            previous.start_char is None
+            or previous.end_char is None
+            or current.start_char is None
+            or current.end_char is None
+            or current.start_char < previous.end_char
+        ):
+            return False
+
+        sentence_start = text.rfind(".", 0, previous.end_char) + 1
+        sentence_start = max(
+            sentence_start,
+            text.rfind("!", 0, previous.end_char) + 1,
+            text.rfind("?", 0, previous.end_char) + 1,
+        )
+        sentence_end_candidates = [
+            p for p in (
+                text.find(".", current.start_char),
+                text.find("!", current.start_char),
+                text.find("?", current.start_char),
+            )
+            if p != -1
+        ]
+        sentence_end = min(sentence_end_candidates) if sentence_end_candidates else len(text)
+
+        if previous.end_char > sentence_end or current.start_char > sentence_end:
+            return False
+
+        between = text[previous.end_char:current.start_char]
+        stripped = between.strip()
+
+        # Keep the structural window deliberately narrow.  It should capture
+        # modifiers such as "jirovecii" without becoming a general proximity
+        # linker between unrelated clinical findings.
+        if not stripped or len(stripped) > 40:
+            return False
+
+        if re.search(r"[.!?;:]", stripped):
+            return False
+
+        if re.search(
+            r"\b(?:and|or|but|versus|with|without|followed\s+by)\b",
+            stripped,
+            re.IGNORECASE,
+        ):
+            return False
+
+        # A comma generally separates independent findings rather than
+        # completing a single noun phrase.
+        if "," in stripped:
+            return False
+
+        return True
+
+    @staticmethod
+    def _merge_effect_entities(
+        previous: ExtractedEntity,
+        current: ExtractedEntity,
+        text: str,
+    ) -> ExtractedEntity:
+        """Create one entity covering two structurally merged spans."""
+        start = min(previous.start_char, current.start_char)
+        end = max(previous.end_char, current.end_char)
+
+        return ExtractedEntity(
+            text=text[start:end],
+            label=previous.label,
+            start_char=start,
+            end_char=end,
+            raw_label=(
+                previous.raw_label
+                if previous.ner_score >= current.ner_score
+                else current.raw_label
+            ),
+            ner_score=max(previous.ner_score, current.ner_score),
+            negated=previous.negated or current.negated,
+            historical=previous.historical or current.historical,
+            hypothetical=previous.hypothetical or current.hypothetical,
+            other_experiencer=(
+                previous.other_experiencer
+                or current.other_experiencer
+            ),
+        )
 
     def _remove_contained_effects(
         self,
