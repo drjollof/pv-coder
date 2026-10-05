@@ -1394,68 +1394,66 @@ class EventBuilder:
         """
         Resolve explicit causality assessments that refer to "the event".
 
-        This deliberately handles an explicit discourse construction rather
-        than using unrestricted character or sentence proximity.  If the
-        narrative contains multiple candidate events, an explicit outcome
-        reference is preferred; otherwise the statement is applied only when
-        the event is unambiguous.
+        This is discourse-level evidence, not generic cross-sentence
+        proximity. The statement must explicitly identify the event and
+        explicitly name one of the extracted drugs.
         """
         if not events or not drugs:
             return
 
         pattern = re.compile(
-            r"\b(?:considered|judged|assessed|determined)\s+"
-            r"(?:the\s+)?event\s+"
-            r"(?:to\s+be\s+)?"
-            r"(?P<assessment>not\s+likely|possibly|probably|likely|not)"
-            r"\s+related\s+to\s+"
-            r"(?P<drug>[A-Za-z][A-Za-z0-9'\- ]*)",
+            r"\\b(?:considered|judged|assessed|determined)\\s+"
+            r"(?:the|this|that)\\s+event\\s+"
+            r"(?:to\\s+be\\s+)?"
+            r"(?P<assessment>not\\s+likely|possibly|probably|likely|not)"
+            r"\\s+related\\s+to\\b",
             re.IGNORECASE,
         )
 
-        sentences = [
-            segment.strip()
-            for segment in self._SENTENCE_PATTERN.split(text)
-            if segment.strip()
-        ]
-
-        for sentence in sentences:
-            match = pattern.search(sentence)
-            if not match:
-                continue
-
+        for match in pattern.finditer(text):
             assessment = match.group("assessment").strip().lower()
-            drug_phrase = match.group("drug").strip().lower()
 
+            # The drug must be explicitly named immediately after the
+            # causality construction. Do not infer it from general proximity.
+            statement_tail = text[match.end():match.end() + 120]
             matched_drugs = [
                 drug
                 for drug in drugs
                 if re.search(
-                    rf"\b{re.escape(drug.text.strip().lower())}\b",
-                    drug_phrase,
+                    rf"\\b{re.escape(drug.text.strip())}\\b",
+                    statement_tail,
+                    re.IGNORECASE,
                 )
             ]
 
             if len(matched_drugs) != 1:
                 continue
 
-            target_events = [
-                event
-                for event in events
-                if event.outcome
-                and event.outcome.strip().lower() == "died from"
-            ]
+            # Resolve "the event" conservatively. Prefer a unique event that
+            # already has an explicit outcome; otherwise prefer a unique
+            # disease/disorder event. If neither makes the reference unique,
+            # leave the causality unresolved rather than guessing.
+            with_outcome = [event for event in events if event.outcome]
 
-            if len(target_events) != 1:
-                target_events = events if len(events) == 1 else []
+            if len(with_outcome) == 1:
+                target = with_outcome[0]
+            else:
+                disease_events = [
+                    event
+                    for event in events
+                    if getattr(event.effect, "raw_label", "").strip().upper()
+                    == "DISEASE_DISORDER"
+                ]
 
-            if len(target_events) != 1:
-                continue
-
-            target = target_events[0]
-            drug = matched_drugs[0]
+                if len(disease_events) == 1:
+                    target = disease_events[0]
+                elif len(events) == 1:
+                    target = events[0]
+                else:
+                    continue
 
             target.causality = assessment
+            drug = matched_drugs[0]
 
             existing = next(
                 (
@@ -1471,13 +1469,14 @@ class EventBuilder:
                 existing.level = RelationLevel.EXPLICIT
                 existing.evidence = "explicit event causality assessment"
             else:
-                relation = DrugEffectRelation(
-                    drug=drug,
-                    effect=target.effect,
-                    level=RelationLevel.EXPLICIT,
-                    evidence="explicit event causality assessment",
+                target.relations.append(
+                    DrugEffectRelation(
+                        drug=drug,
+                        effect=target.effect,
+                        level=RelationLevel.EXPLICIT,
+                        evidence="explicit event causality assessment",
+                    )
                 )
-                target.relations.append(relation)
 
             if not any(
                 existing_drug.text.strip().casefold()
@@ -1640,7 +1639,57 @@ class EventBuilder:
             if not merged:
                 consolidated.append(effect)
 
-        return self._remove_contained_effects(consolidated, text)
+        consolidated = self._remove_contained_effects(
+            consolidated,
+            text,
+        )
+
+        # Repeated exact mentions of the same clinical finding are one event
+        # unless the intervening text explicitly marks the later mention as
+        # historical. This handles confirmation sentences without collapsing
+        # distinct findings that merely happen to be nearby.
+        return self._deduplicate_exact_effects(consolidated, text)
+
+    @staticmethod
+    def _deduplicate_exact_effects(
+        effects: list[ExtractedEntity],
+        text: str,
+    ) -> list[ExtractedEntity]:
+        result: list[ExtractedEntity] = []
+
+        for effect in effects:
+            duplicate = False
+            for existing in result:
+                if (
+                    existing.start_char is None
+                    or existing.end_char is None
+                    or effect.start_char is None
+                    or effect.end_char is None
+                ):
+                    continue
+
+                if (
+                    existing.text.strip().casefold()
+                    != effect.text.strip().casefold()
+                ):
+                    continue
+
+                if effect.start_char <= existing.end_char:
+                    duplicate = True
+                    break
+
+                between = text[
+                    existing.end_char:effect.start_char
+                ]
+
+                if not EventBuilder._contains_historical_marker(between):
+                    duplicate = True
+                    break
+
+            if not duplicate:
+                result.append(effect)
+
+        return result
 
     @staticmethod
     def _can_merge_compound_effects(
