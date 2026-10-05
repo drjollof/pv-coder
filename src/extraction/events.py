@@ -888,6 +888,15 @@ class EventBuilder:
             if not intervening:
                 return True
 
+        # Case 5: the suspect declaration immediately follows the event sentence.
+        if effect_sentence_end <= scope_sentence_start:
+            intervening = text[
+                effect_sentence_end:scope_sentence_start
+            ].strip()
+
+            if not intervening:
+                return True
+
         return False
 
 
@@ -1258,7 +1267,7 @@ class EventBuilder:
 
         if (
             effect.start_char < drug.start_char
-            and sentence_distance <= 1
+            and sentence_distance <= 2
             and re.search(
                 r"\b(?:at\s+the\s+time|when|while|during)\b",
                 drug_sentence,
@@ -1399,11 +1408,11 @@ class EventBuilder:
         # drug from the short tail of the same sentence. This keeps the
         # relation discourse-driven rather than proximity-driven.
         assessment_pattern = re.compile(
-            r"\\b(?:considered|judged|assessed|determined)\\s+"
-            r"(?:the|this|that)\\s+event\\s+"
-            r"(?:to\\s+be\\s+)?"
-            r"(?P<assessment>not\\s+likely|possibly|probably|likely|not)"
-            r"\\s+related\\s+to\\b",
+            r"\b(?:considered|judged|assessed|determined)\s+"
+            r"(?:the|this|that)\s+event\s+"
+            r"(?:to\s+be\s+)?"
+            r"(?P<assessment>not\s+likely|possibly|probably|likely|not)"
+            r"\s+related\s+to\b",
             re.IGNORECASE,
         )
 
@@ -1423,14 +1432,11 @@ class EventBuilder:
                 drug
                 for drug in drugs
                 if re.search(
-                    rf"\\b{re.escape(drug.text.strip())}\\b",
+                    rf"\b{re.escape(drug.text.strip())}\b",
                     sentence,
                     re.IGNORECASE,
                 )
             ]
-
-            if len(matched_drugs) != 1:
-                continue
 
             # "The event" is a discourse reference. Resolve it only when
             # the existing event structure gives us a unique antecedent.
@@ -1440,6 +1446,18 @@ class EventBuilder:
             elif len(events) == 1:
                 target = events[0]
             else:
+                continue
+
+            unique_drug_texts = {d.text.strip().casefold() for d in matched_drugs}
+            
+            # Fallback for generic references like "the study drug"
+            if len(unique_drug_texts) == 0 and re.search(r"\bstudy\s+drug\b", sentence, re.IGNORECASE):
+                # If there is exactly one drug already linked to the event, assume it's the study drug
+                if len(target.drugs) == 1:
+                    matched_drugs = [target.drugs[0]]
+                    unique_drug_texts = {matched_drugs[0].text.strip().casefold()}
+
+            if len(unique_drug_texts) != 1:
                 continue
 
             drug = matched_drugs[0]
@@ -1514,23 +1532,25 @@ class EventBuilder:
         if not segments:
             return None
 
-        next_sentence = segments[0]
+        # Scan up to 4 sentences ahead for the outcome
+        for next_sentence in segments[:4]:
+            effect_reference = re.search(
+                rf"\b(?:the|this|that|onset\s+of)\s+"
+                rf"(?:{re.escape(effect.text)}|event|reaction)\b",
+                next_sentence,
+                re.IGNORECASE,
+            )
 
-        effect_reference = re.search(
-            rf"\b(?:the|this|that)\s+"
-            rf"{re.escape(effect.text)}\b",
-            next_sentence,
-            re.IGNORECASE,
-        )
+            if not effect_reference:
+                continue
 
-        if not effect_reference:
-            return None
+            for pattern in self.OUTCOME_PATTERNS:
+                match = pattern.search(next_sentence)
 
-        for pattern in self.OUTCOME_PATTERNS:
-            match = pattern.search(next_sentence)
+                if match:
+                    return match.group(1).strip()
 
-            if match:
-                return match.group(1).strip()
+        return None
 
         return None
 

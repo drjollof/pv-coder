@@ -135,8 +135,30 @@ class CaseBuilder:
         demographics = PatientDemographics(**demographics_data) if demographics_data else None
 
         print(f"[{case_id}] Extracting entities...", flush=True)
-        candidates = self.ner.extract(narrative)
-        candidates = self.context_filter.annotate(candidates)
+        raw_candidates = self.ner.extract(narrative)
+        
+        diagnostics = {
+            "ner_extracted_entities": [
+                {"text": e.text, "type": e.label, "start": e.start_char, "end": e.end_char} 
+                for e in raw_candidates.drugs + raw_candidates.diseases
+            ]
+        }
+        
+        candidates = self.context_filter.annotate(raw_candidates)
+        
+        diagnostics["context_annotated_entities"] = [
+            {
+                "text": e.text, 
+                "type": e.label, 
+                "start": e.start_char, 
+                "end": e.end_char, 
+                "is_historical": getattr(e, 'historical', False), 
+                "is_negated": getattr(e, 'negated', False), 
+                "is_hypothetical": getattr(e, 'hypothetical', False), 
+                "is_other_experiencer": getattr(e, 'other_experiencer', False)
+            } 
+            for e in candidates.drugs + candidates.diseases
+        ]
         t1 = time.time()
         timings["Extraction"] = round(t1 - t0, 3)
         
@@ -322,5 +344,6 @@ class CaseBuilder:
             demographics=demographics,
             pipeline_timings=timings,
             meddra_version=self.meddra_version,
+            pipeline_diagnostics=diagnostics,
             case_version=current_version
         )

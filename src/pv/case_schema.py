@@ -219,6 +219,11 @@ class PharmacovigilanceCase(BaseModel):
         description="Loaded MedDRA version.",
     )
 
+    pipeline_diagnostics: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Detailed diagnostic trace for pipeline execution.",
+    )
+
     case_version: int = Field(
         default=1,
         description="Version of the case.",
