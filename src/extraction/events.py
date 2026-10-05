@@ -1391,17 +1391,14 @@ class EventBuilder:
         drugs: list[ExtractedEntity],
         text: str,
     ) -> None:
-        """
-        Resolve explicit causality assessments that refer to "the event".
-
-        This is discourse-level evidence, not generic cross-sentence
-        proximity. The statement must explicitly identify the event and
-        explicitly name one of the extracted drugs.
-        """
+        """Resolve explicit causality assessments that refer to an event."""
         if not events or not drugs:
             return
 
-        pattern = re.compile(
+        # Match the assessment itself, then resolve the explicitly named
+        # drug from the short tail of the same sentence. This keeps the
+        # relation discourse-driven rather than proximity-driven.
+        assessment_pattern = re.compile(
             r"\\b(?:considered|judged|assessed|determined)\\s+"
             r"(?:the|this|that)\\s+event\\s+"
             r"(?:to\\s+be\\s+)?"
@@ -1410,18 +1407,24 @@ class EventBuilder:
             re.IGNORECASE,
         )
 
-        for match in pattern.finditer(text):
+        for match in assessment_pattern.finditer(text):
             assessment = match.group("assessment").strip().lower()
 
-            # The drug must be explicitly named immediately after the
-            # causality construction. Do not infer it from general proximity.
-            statement_tail = text[match.end():match.end() + 120]
+            sentence_start, sentence_end = self._sentence_bounds(
+                match.start(),
+                text,
+            )
+            sentence = text[sentence_start:sentence_end]
+
+            # Only drugs explicitly named in the same causality sentence
+            # are eligible. This also avoids accidentally selecting a drug
+            # mentioned elsewhere in the narrative.
             matched_drugs = [
                 drug
                 for drug in drugs
                 if re.search(
                     rf"\\b{re.escape(drug.text.strip())}\\b",
-                    statement_tail,
+                    sentence,
                     re.IGNORECASE,
                 )
             ]
@@ -1429,31 +1432,18 @@ class EventBuilder:
             if len(matched_drugs) != 1:
                 continue
 
-            # Resolve "the event" conservatively. Prefer a unique event that
-            # already has an explicit outcome; otherwise prefer a unique
-            # disease/disorder event. If neither makes the reference unique,
-            # leave the causality unresolved rather than guessing.
+            # "The event" is a discourse reference. Resolve it only when
+            # the existing event structure gives us a unique antecedent.
             with_outcome = [event for event in events if event.outcome]
-
             if len(with_outcome) == 1:
                 target = with_outcome[0]
+            elif len(events) == 1:
+                target = events[0]
             else:
-                disease_events = [
-                    event
-                    for event in events
-                    if getattr(event.effect, "raw_label", "").strip().upper()
-                    == "DISEASE_DISORDER"
-                ]
+                continue
 
-                if len(disease_events) == 1:
-                    target = disease_events[0]
-                elif len(events) == 1:
-                    target = events[0]
-                else:
-                    continue
-
-            target.causality = assessment
             drug = matched_drugs[0]
+            target.causality = assessment
 
             existing = next(
                 (
